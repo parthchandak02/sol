@@ -22,16 +22,17 @@
 
 <br><br>
 
-<a href="https://sol.parthchandak.info"><img src="docs/assets/readme/hero.jpg" width="100%" alt="A pale blue sky with a thin arc across it, a short bright blue daytime segment with lavender twilight ends near the top, a yellow sun on the arc, 10h 50m day length top-left and a dark controls panel with latitude, longitude and day-of-year sliders on the right"></a>
+<a href="https://sol.parthchandak.info"><img src="docs/assets/readme/hero.jpg" width="100%" alt="A pale blue sky framed in black with a wide arc across it, a long bright blue daytime segment with lavender twilight ends, a yellow sun parked at sunrise, 10h 48m day length top-left and a dark controls panel with location and date sliders and seven city preset buttons on the right"></a>
 
-<sub>Live capture, 22 October 2026: New York, today's date. Real API data.</sub>
+<sub>Live capture, 23 October 2026, night in New York so the sun waits at sunrise. Real API data.</sub>
 
 </div>
 
 <br>
 
 A pastel Canvas 2D sky with one arc across it. Three sliders set latitude, longitude and day of
-the year; the arc and the big day-length number top-left follow. Sunrise, solar noon, sunset and
+the year, and seven city buttons (New York, London, Tokyo, Sydney, Singapore, Reykjavik, Cape
+Town) jump the location sliders; the arc and the big day-length number top-left follow. Sunrise, solar noon, sunset and
 civil twilight come from the free [Sunrise-Sunset API](https://sunrise-sunset.org/api), so no key
 is needed. It opens on New York and today's date.
 
@@ -43,7 +44,7 @@ is needed. It opens on New York and today's date.
 | Day length, from the same formula | How much of the arc is lit blue as daytime |
 | API `civil_twilight_begin` / `_end` | The lavender bands either side of daytime, and the outer time labels |
 | API `sunrise`, `solar_noon`, `sunset` | The time labels under the arc |
-| The clock now, against that day's sunrise and sunset | Where the sun sits on the arc |
+| The time of day now, against the selected day's sunrise and sunset | Where the sun sits on the arc (parked at sunrise or sunset at night) |
 
 The arc is a stylised curve, not a true azimuth and elevation plot. Arc height and the daytime
 share are computed in the browser; the clock times come from the API, with a computed estimate
@@ -72,25 +73,13 @@ The live version runs on Cloudflare Pages.
 
 ```
 src/components/SunPathCanvas.tsx  The piece: solar maths, API fetch, arc drawing
-src/app/app-schema.ts             Sliders and preset buttons (Toolcraft schema)
-src/routes/index.tsx              Overlays: day length, data stamp, legend, times card
+src/app/app-schema.ts             Sliders and city presets (Toolcraft schema)
+src/routes/index.tsx              Preset handler and overlays: day length, stamp, legend, times card
 src/toolcraft/                    Vendored Toolcraft runtime (do not edit)
 brief.md                          The original creative brief
 AGENTS.md, docs/toolcraft/        Toolcraft's rules for working in the repo
 e2e/, scripts/                    Toolcraft's test and verification harness
 ```
-
-</details>
-
-<details>
-<summary><b>Known rough edges</b></summary>
-
-- The canvas draws at window size inside the 16:9 output frame, so on most screens the arc runs
-  past the right edge and the overlays sit outside the frame.
-- The city preset buttons (New York, London, Tokyo, Sydney, Singapore, Reykjavik, Cape Town)
-  are declared in the schema, but the Presets section renders empty and nothing handles them yet.
-- The sun only moves along the arc when the selected day is today; on any other day it parks at
-  sunrise or sunset.
 
 </details>
 

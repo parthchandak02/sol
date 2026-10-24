@@ -6,6 +6,16 @@ const diff = TODAY.getTime() - startOfYear.getTime();
 const oneDay = 1000 * 60 * 60 * 24;
 const defaultDay = Math.floor(diff / oneDay);
 
+export const CITY_PRESETS = [
+  { value: "presetNYC", label: "New York", latitude: 40.7, longitude: -74.0 },
+  { value: "presetLondon", label: "London", latitude: 51.5, longitude: -0.1 },
+  { value: "presetTokyo", label: "Tokyo", latitude: 35.7, longitude: 139.7 },
+  { value: "presetSydney", label: "Sydney", latitude: -33.9, longitude: 151.2 },
+  { value: "presetSingapore", label: "Singapore", latitude: 1.3, longitude: 103.8 },
+  { value: "presetReykjavik", label: "Reykjavik", latitude: 64.1, longitude: -21.9 },
+  { value: "presetCapeTown", label: "Cape Town", latitude: -33.9, longitude: 18.4 },
+] as const;
+
 export const appSchema = defineToolcraft({
   canvas: {
     enabled: true,
@@ -60,47 +70,16 @@ export const appSchema = defineToolcraft({
         {
           title: "Presets",
           controls: {
-            presetNYC: {
-              type: "action",
-              target: "presetNYC",
-              label: "New York",
-              actions: [{ value: "presetNYC", variant: "outline" }],
-            },
-            presetLondon: {
-              type: "action",
-              target: "presetLondon",
-              label: "London",
-              actions: [{ value: "presetLondon", variant: "outline" }],
-            },
-            presetTokyo: {
-              type: "action",
-              target: "presetTokyo",
-              label: "Tokyo",
-              actions: [{ value: "presetTokyo", variant: "outline" }],
-            },
-            presetSydney: {
-              type: "action",
-              target: "presetSydney",
-              label: "Sydney",
-              actions: [{ value: "presetSydney", variant: "outline" }],
-            },
-            presetSingapore: {
-              type: "action",
-              target: "presetSingapore",
-              label: "Singapore",
-              actions: [{ value: "presetSingapore", variant: "outline" }],
-            },
-            presetReykjavik: {
-              type: "action",
-              target: "presetReykjavik",
-              label: "Reykjavik",
-              actions: [{ value: "presetReykjavik", variant: "outline" }],
-            },
-            presetCapeTown: {
-              type: "action",
-              target: "presetCapeTown",
-              label: "Cape Town",
-              actions: [{ value: "presetCapeTown", variant: "outline" }],
+            cityPreset: {
+              type: "actions",
+              target: "cityPreset",
+              label: "City",
+              description: "Jump the latitude and longitude sliders to a city.",
+              actions: CITY_PRESETS.map((city) => ({
+                label: city.label,
+                value: city.value,
+                variant: "outline" as const,
+              })),
             },
           },
         },

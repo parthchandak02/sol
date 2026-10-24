@@ -1,6 +1,7 @@
 import * as React from "react";
-import { ToolcraftApp } from "@/toolcraft/runtime/react";
+import { ToolcraftApp, type ToolcraftPanelActionHandler } from "@/toolcraft/runtime/react";
 import { appComposition } from "../app/app-composition";
+import { CITY_PRESETS } from "../app/app-schema";
 import { SunPathCanvas } from "../components/SunPathCanvas";
 
 function formatTime(isoStr: string): string {
@@ -23,6 +24,13 @@ interface SunData {
   civil_twilight_end: string;
   isFallback: boolean;
 }
+
+const handlePanelAction: ToolcraftPanelActionHandler = ({ action, dispatch }) => {
+  const city = CITY_PRESETS.find((preset) => preset.value === action.value);
+  if (!city) return;
+  dispatch({ type: "controls.setValue", target: "latitude", value: city.latitude, label: city.label });
+  dispatch({ type: "controls.setValue", target: "longitude", value: city.longitude, label: city.label });
+};
 
 export function AppHome(): React.JSX.Element {
   const quietZoneRef = React.useRef<((data: any) => void) | null>(null);
@@ -70,127 +78,91 @@ export function AppHome(): React.JSX.Element {
     };
   }, [showQuietZone]);
 
-  // Fetch data for chrome (hero + stamp)
-  React.useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      const today = new Date();
-      const start = new Date(today.getFullYear(), 0, 0);
-      const diff = today.getTime() - start.getTime();
-      const day = Math.floor(diff / (1000 * 60 * 60 * 24));
-      const lat = 40.7;
-      const lng = -74.0;
-      const date = new Date(today.getFullYear(), 0, day);
-      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-      try {
-        const res = await fetch(
-          `https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lng}&date=${dateStr}&formatted=0`
-        );
-        const json = await res.json();
-        if (cancelled || json.status !== "OK") return;
-        const data: SunData = {
-          ...json.results,
-          isFallback: false,
-        };
-        sunDataRef.current = data;
-        const dl = formatDayLength(data.day_length);
-        setDayLengthDisplay(dl);
-        setStampText(
-          `Sunrise-Sunset API -- NYC 40.7degN, 74.0degW -- ${dl} -- live`
-        );
-      } catch {
-        // fallback handled by canvas
-      }
-    }
-    load();
-    const interval = setInterval(load, 60000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
-
   return (
     <div className="relative w-full h-full">
       <ToolcraftApp
+        className="h-dvh min-h-dvh"
         schema={appComposition.schema}
+        onPanelAction={handlePanelAction}
         canvasContent={
-          <SunPathCanvas
-            quietZoneRef={quietZoneRef}
-            sunDataRef={sunDataRef}
-            onDataUpdate={(data: SunData) => {
-              const dl = formatDayLength(data.day_length);
-              setDayLengthDisplay(dl);
-              setStampText(
-                `Sunrise-Sunset API -- ${data.isFallback ? "computed" : "live"} -- ${dl}`
-              );
-            }}
-          />
+          <>
+            <SunPathCanvas
+              quietZoneRef={quietZoneRef}
+              sunDataRef={sunDataRef}
+              onDataUpdate={(data: SunData) => {
+                const dl = formatDayLength(data.day_length);
+                setDayLengthDisplay(dl);
+                setStampText(
+                  `Sunrise-Sunset API -- ${data.isFallback ? "computed" : "live"} -- ${dl}`
+                );
+              }}
+            />
+
+            {/* Chrome overlays: inside the output frame so they stay on the piece */}
+            <div id="hero-stats">
+              <div className="hero-value">{dayLengthDisplay}</div>
+              <div className="hero-label">day length</div>
+            </div>
+
+            <div id="data-stamp">{stampText}</div>
+
+            <div id="desc">
+              Latitude and season shape the sun's arc across the sky -- drag sliders to explore
+            </div>
+
+            <div id="legend">
+              <span style={{ color: "#4fc3f7" }}>daytime</span>
+              <span style={{ margin: "0 8px", opacity: 0.3 }}>|</span>
+              <span style={{ color: "#ce93d8" }}>twilight</span>
+              <span style={{ margin: "0 8px", opacity: 0.3 }}>|</span>
+              <span style={{ color: "#ffd54f" }}>sun</span>
+              <span style={{ margin: "0 8px", opacity: 0.3 }}>|</span>
+              wider arc = longer day
+            </div>
+
+            <div id="quiet-zone" className={qzVisible ? "visible" : ""}>
+              {qzData && (
+                <div className="qz-card">
+                  <div className="qz-title">Solar Times</div>
+                  <div className="qz-row">
+                    <span className="qz-label">Sunrise</span>
+                    <span className="qz-value">{qzData.sunrise}</span>
+                  </div>
+                  <div className="qz-row">
+                    <span className="qz-label">Solar Noon</span>
+                    <span className="qz-value">{qzData.solarNoon}</span>
+                  </div>
+                  <div className="qz-row">
+                    <span className="qz-label">Sunset</span>
+                    <span className="qz-value">{qzData.sunset}</span>
+                  </div>
+                  <div className="qz-row">
+                    <span className="qz-label">Day Length</span>
+                    <span className="qz-value">{qzData.dayLength}</span>
+                  </div>
+                  <div className="qz-row">
+                    <span className="qz-label">Twilight Start</span>
+                    <span className="qz-value">{qzData.civilTwilightBegin}</span>
+                  </div>
+                  <div className="qz-row">
+                    <span className="qz-label">Twilight End</span>
+                    <span className="qz-value">{qzData.civilTwilightEnd}</span>
+                  </div>
+                  <a
+                    className="qz-link"
+                    href="https://sunrise-sunset.org"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Data: {qzData.source} &rarr;
+                  </a>
+                </div>
+              )}
+            </div>
+          </>
         }
         renderDefaultCanvasMedia={false}
       />
-
-      {/* Chrome overlays */}
-      <div id="hero-stats">
-        <div className="hero-value">{dayLengthDisplay}</div>
-        <div className="hero-label">day length</div>
-      </div>
-
-      <div id="data-stamp">{stampText}</div>
-
-      <div id="desc">
-        Latitude and season shape the sun's arc across the sky -- drag sliders to explore
-      </div>
-
-      <div id="legend">
-        <span style={{ color: "#4fc3f7" }}>daytime</span>
-        <span style={{ margin: "0 8px", opacity: 0.3 }}>|</span>
-        <span style={{ color: "#ce93d8" }}>twilight</span>
-        <span style={{ margin: "0 8px", opacity: 0.3 }}>|</span>
-        <span style={{ color: "#ffd54f" }}>sun</span>
-        <span style={{ margin: "0 8px", opacity: 0.3 }}>|</span>
-        wider arc = longer day
-      </div>
-
-      <div id="quiet-zone" className={qzVisible ? "visible" : ""}>
-        {qzData && (
-          <div className="qz-card">
-            <div className="qz-title">Solar Times</div>
-            <div className="qz-row">
-              <span className="qz-label">Sunrise</span>
-              <span className="qz-value">{qzData.sunrise}</span>
-            </div>
-            <div className="qz-row">
-              <span className="qz-label">Solar Noon</span>
-              <span className="qz-value">{qzData.solarNoon}</span>
-            </div>
-            <div className="qz-row">
-              <span className="qz-label">Sunset</span>
-              <span className="qz-value">{qzData.sunset}</span>
-            </div>
-            <div className="qz-row">
-              <span className="qz-label">Day Length</span>
-              <span className="qz-value">{qzData.dayLength}</span>
-            </div>
-            <div className="qz-row">
-              <span className="qz-label">Twilight Start</span>
-              <span className="qz-value">{qzData.civilTwilightBegin}</span>
-            </div>
-            <div className="qz-row">
-              <span className="qz-label">Twilight End</span>
-              <span className="qz-value">{qzData.civilTwilightEnd}</span>
-            </div>
-            <a
-              className="qz-link"
-              href="https://sunrise-sunset.org"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Data: {qzData.source} &rarr;
-            </a>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

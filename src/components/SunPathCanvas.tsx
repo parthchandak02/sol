@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useToolcraftValue } from "@/toolcraft/runtime/react";
+import { useToolcraft, useToolcraftValue } from "@/toolcraft/runtime/react";
 
 // ─── Breeze Palette ───
 const PALETTE = {
@@ -33,7 +33,7 @@ function dayLengthHours(lat: number, day: number): number {
   if (cosHA > 1) return 0; // polar night
   if (cosHA < -1) return 24; // midnight sun
   const ha = Math.acos(cosHA);
-  return (2 * ha * 180 * 4) / (15 * 60); // hours
+  return (2 * ha * 180) / Math.PI / 15; // hours (15 degrees of hour angle per hour)
 }
 
 // ─── Sun position on arc ───
@@ -342,6 +342,23 @@ export function SunPathCanvas({
 
   const fetchRef = React.useRef<(() => void) | null>(null);
 
+  // Fit the whole output frame inside the visible viewport so the arc and its
+  // labels are never cut off at the window edges
+  const { dispatch, state } = useToolcraft();
+  const frameWidth = state.canvas.size.width;
+  const frameHeight = state.canvas.size.height;
+  React.useEffect(() => {
+    function fit() {
+      const viewport = canvasRef.current?.closest<HTMLElement>("[data-slot='toolcraft-runtime-canvas']");
+      if (!viewport || !frameWidth || !frameHeight) return;
+      const zoom = Math.min(viewport.clientWidth / frameWidth, viewport.clientHeight / frameHeight) * 100;
+      dispatch({ type: "canvas.setViewport", offset: { x: 0, y: 0 }, zoom: Math.floor(zoom) });
+    }
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [dispatch, frameWidth, frameHeight]);
+
   // Fetch sun data
   const doFetch = React.useCallback(async () => {
     const data = await fetchSunData(latitude, longitude, dayOfYear);
@@ -379,19 +396,20 @@ export function SunPathCanvas({
     let H = 0;
     let dpr = 1;
 
+    // Size the drawing buffer to the output frame the canvas sits in, not the window
     function resize() {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
-      W = window.innerWidth;
-      H = window.innerHeight;
+      const frame = canvas!.parentElement ?? canvas!;
+      W = frame.clientWidth || window.innerWidth;
+      H = frame.clientHeight || window.innerHeight;
       canvas!.width = W * dpr;
       canvas!.height = H * dpr;
-      canvas!.style.width = W + "px";
-      canvas!.style.height = H + "px";
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
     resize();
-    window.addEventListener("resize", resize);
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(canvas.parentElement ?? canvas);
 
     function draw() {
       // Background
@@ -420,13 +438,20 @@ export function SunPathCanvas({
       // Animate sun progress (move from sunrise to sunset during daytime)
       const sunData = internalSunDataRef.current;
       if (sunData) {
-        const now = new Date();
-        const sunrise = new Date(sunData.sunrise);
-        const sunset = new Date(sunData.sunset);
-        const total = sunset.getTime() - sunrise.getTime();
+        // Place the sun by the current time of day on the selected date, so the
+        // sun moves on any day, not only when the selected day is today
+        const DAY_MS = 86400000;
+        const sunrise = new Date(sunData.sunrise).getTime();
+        const sunset = new Date(sunData.sunset).getTime();
+        const total = sunset - sunrise;
         if (total > 0) {
-          const elapsed = now.getTime() - sunrise.getTime();
-          animProgressRef.current = Math.max(0, Math.min(1, elapsed / total));
+          const sinceSunrise = (((Date.now() - sunrise) % DAY_MS) + DAY_MS) % DAY_MS;
+          if (sinceSunrise <= total) {
+            animProgressRef.current = sinceSunrise / total;
+          } else {
+            // Night: park at sunset until midway through the night, then at sunrise
+            animProgressRef.current = sinceSunrise - total < (DAY_MS - total) / 2 ? 1 : 0;
+          }
         }
       } else {
         // Approximate: midday sun
@@ -451,7 +476,7 @@ export function SunPathCanvas({
 
     return () => {
       cancelAnimationFrame(animRef.current);
-      window.removeEventListener("resize", resize);
+      resizeObserver.disconnect();
     };
   }, [latitude, longitude, dayOfYear]);
 
