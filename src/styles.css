@@ -164,9 +164,9 @@ button {
   font: 11px/1.4 system-ui, sans-serif;
   color: rgba(0,0,0,0.45);
   text-align: center;
-  max-width: 65ch;
+  width: max-content;
+  max-width: min(65ch, 90%);
   pointer-events: none;
-  white-space: nowrap;
 }
 
 #legend {

@@ -351,8 +351,25 @@ export function SunPathCanvas({
     function fit() {
       const viewport = canvasRef.current?.closest<HTMLElement>("[data-slot='toolcraft-runtime-canvas']");
       if (!viewport || !frameWidth || !frameHeight) return;
-      const zoom = Math.min(viewport.clientWidth / frameWidth, viewport.clientHeight / frameHeight) * 100;
-      dispatch({ type: "canvas.setViewport", offset: { x: 0, y: 0 }, zoom: Math.floor(zoom) });
+      // Fit into the part of the viewport actually on screen: the app shell has a minimum
+      // width, so on phones it runs past the right edge of the window
+      const r = viewport.getBoundingClientRect();
+      const left = Math.max(r.left, 0);
+      const top = Math.max(r.top, 0);
+      const visW = Math.min(r.right, window.innerWidth) - left;
+      const visH = Math.min(r.bottom, window.innerHeight) - top;
+      if (visW <= 0 || visH <= 0) return;
+      const zoom = Math.min(visW / frameWidth, visH / frameHeight) * 100;
+      if (zoom < 25) {
+        // Below the runtime's minimum zoom (phones): reshape the frame to the screen instead
+        dispatch({ type: "canvas.setSize", size: { width: Math.floor(visW), height: Math.floor(visH), unit: "px" } });
+        return;
+      }
+      dispatch({
+        type: "canvas.setViewport",
+        offset: { x: left + visW / 2 - (r.left + r.width / 2), y: top + visH / 2 - (r.top + r.height / 2) },
+        zoom: Math.floor(zoom),
+      });
     }
     fit();
     window.addEventListener("resize", fit);
