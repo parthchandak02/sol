@@ -22,9 +22,9 @@
 
 <br><br>
 
-<a href="https://sol.parthchandak.info"><img src="docs/assets/readme/hero.jpg" width="100%" alt="A pale blue sky framed in black with a wide arc across it, a long bright blue daytime segment with lavender twilight ends, a yellow sun parked at sunrise, 10h 48m day length top-left and a dark controls panel with location and date sliders and seven city preset buttons on the right"></a>
+<a href="https://sol.parthchandak.info"><img src="docs/assets/readme/hero.jpg" width="100%" alt="A pale blue sky framed in black with a wide arc across it, a long bright blue daytime segment with lavender twilight ends, a yellow sun near sunset, five labelled times under the arc, 10h 10m day length top-left and a dark controls panel with location, date, background and export controls on the right"></a>
 
-<sub>Live capture, 23 October 2026, night in New York so the sun waits at sunrise. Real API data.</sub>
+<sub>Live capture, 8 November 2026, New York in the afternoon. Real API data; times in the viewer's time zone (Pacific).</sub>
 
 </div>
 
