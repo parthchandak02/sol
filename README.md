@@ -34,7 +34,8 @@ A pastel Canvas 2D sky with one arc across it. Three sliders set latitude, longi
 the year, and seven city buttons (New York, London, Tokyo, Sydney, Singapore, Reykjavik, Cape
 Town) jump the location sliders; the arc and the big day-length number top-left follow. Sunrise, solar noon, sunset and
 civil twilight come from the free [Sunrise-Sunset API](https://sunrise-sunset.org/api), so no key
-is needed. It opens on New York and today's date.
+is needed. It opens on New York and today's date. You can recolour the sky or leave it out, and
+export the piece as PNG or JPG at 2K, 4K or 8K.
 
 ## How it works
 
@@ -50,11 +51,13 @@ The arc is a stylised curve, not a true azimuth and elevation plot. Arc height a
 share are computed in the browser; the clock times come from the API, with a computed estimate
 (stamp says `computed`) if the request fails. Results are cached per location and date.
 
-Click anywhere on the sky for a card with all six times and the day length; it fades after
-three seconds. Times are shown in the viewer's own time zone.
+Every label (first light, sunrise, solar noon, sunset, last light), the day length, the legend
+and the data stamp are drawn into the canvas, so the exported image matches the screen. Near the
+poles the labels switch to "polar night" or "midnight sun". Times are shown in the viewer's own
+time zone.
 
 The control panel and canvas shell come from the Toolcraft template (Pixel Point, MIT), which
-also adds export/import of settings and aspect-ratio controls.
+also adds export/import of settings, aspect-ratio controls and a resolution scale.
 
 ## Run it
 
@@ -64,6 +67,7 @@ cd sol
 npm install
 npm run dev      # picks a free port, starting at 3002
 npm run build    # type-check, then static site in dist/
+npm test         # unit tests plus Toolcraft's contract checks
 ```
 
 The live version runs on Cloudflare Pages.
@@ -72,9 +76,13 @@ The live version runs on Cloudflare Pages.
 <summary><b>Project layout</b></summary>
 
 ```
-src/components/SunPathCanvas.tsx  The piece: solar maths, API fetch, arc drawing
-src/app/app-schema.ts             Sliders and city presets (Toolcraft schema)
-src/routes/index.tsx              Preset handler and overlays: day length, stamp, legend, times card
+src/sol/sun-model.ts              Solar maths, Sunrise-Sunset API fetch and cache, formatting
+src/sol/sun-path-draw.ts          Draws the whole piece (preview and export share it)
+src/sol/sun-path-canvas.tsx       The canvas on screen: reads settings, redraws, fits the view
+src/sol/sun-export.ts             PNG/JPG export at the chosen resolution
+src/app/app-schema.ts             Sliders, city presets, background and export (Toolcraft schema)
+src/app/app-composition.tsx       Wires the canvas and the preset/export actions into Toolcraft
+src/app/app-acceptance-data.ts    What each control must visibly do (checked by the tests)
 src/toolcraft/                    Vendored Toolcraft runtime (do not edit)
 brief.md                          The original creative brief
 AGENTS.md, docs/toolcraft/        Toolcraft's rules for working in the repo
