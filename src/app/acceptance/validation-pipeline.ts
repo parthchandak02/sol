@@ -3,21 +3,27 @@ import type {
   ToolcraftDecisionDiagnosticSeverity,
   ToolcraftDecisionRuleId,
   ToolcraftTimelineMode,
+  ToolcraftRendererPipeline,
 } from "@/toolcraft/runtime";
 import { getToolcraftDecisionDiagnosticSeverity } from "@/toolcraft/runtime";
 
 import type {
   ToolcraftComponentAcceptance,
   ToolcraftControlSectionInventoryEntry,
+  ToolcraftProductReadiness,
   ToolcraftTransferMode,
   ToolcraftVisibleControl,
 } from "./types";
+import type { ToolcraftPersistenceCoverageResult } from "./runtime-coverage";
 
 export type ToolcraftAcceptanceValidationContext = {
   acceptance: readonly ToolcraftComponentAcceptance[];
   controls: readonly ToolcraftVisibleControl[];
   hasVideoExportAction: boolean;
   layersEnabled: boolean;
+  persistence: ToolcraftPersistenceCoverageResult;
+  productReadiness: ToolcraftProductReadiness;
+  rendererPipeline?: ToolcraftRendererPipeline;
   schema: ResolvedToolcraftAppSchema;
   sectionInventory: readonly ToolcraftControlSectionInventoryEntry[];
   timelineMode: ToolcraftTimelineMode | null;

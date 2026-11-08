@@ -11,7 +11,7 @@ import { attachToolcraftBrowserRuntimeEvidence } from "./browser-runtime-evidenc
 export async function dragToolcraftCanvasViewport(
   page: Page,
   delta: { x: number; y: number } = { x: 96, y: -64 },
-  options: { scenarioId?: string } = {},
+  options: { pathId?: string } = {},
 ): Promise<void> {
   const viewport = page.getByRole("application", { name: "Canvas viewport" });
   await expect(viewport, "Toolcraft canvas viewport should be visible").toBeVisible();
@@ -25,41 +25,47 @@ export async function dragToolcraftCanvasViewport(
   const startY = box.y + box.height * 0.5;
 
   await page.mouse.move(startX, startY);
-  await page.mouse.down();
-  await page.mouse.move(startX + delta.x, startY + delta.y, { steps: 16 });
-  await page.mouse.up();
-  if (options.scenarioId) {
+  await viewport.focus();
+  await page.keyboard.down("Space");
+  try {
+    await page.mouse.down();
+    await page.mouse.move(startX + delta.x, startY + delta.y, { steps: 16 });
+  } finally {
+    await page.mouse.up();
+    await page.keyboard.up("Space");
+  }
+  if (options.pathId) {
     await attachToolcraftBrowserRuntimeEvidence({
       evidenceType: "performance-viewport",
-      requirementId: options.scenarioId,
+      requirementId: options.pathId,
     });
   }
 }
 
 export async function zoomToolcraftCanvasViewport(
   page: Page,
-  repetitions = 2,
-  options: { scenarioId?: string } = {},
+  options: {
+    direction: "in" | "out";
+    pathId?: string;
+    repetitions?: number;
+  },
 ): Promise<void> {
   const zoomIn = page.getByRole("button", { name: "Zoom in" });
   const zoomOut = page.getByRole("button", { name: "Zoom out" });
+  const control = options.direction === "in" ? zoomIn : zoomOut;
+  await expect(
+    control,
+    `Toolcraft zoom-${options.direction} control should be visible`,
+  ).toBeVisible();
 
-  await expect(zoomIn, "Toolcraft zoom-in control should be visible").toBeVisible();
-  await expect(zoomOut, "Toolcraft zoom-out control should be visible").toBeVisible();
-
-  for (let index = 0; index < repetitions; index += 1) {
-    await zoomIn.click();
+  for (let index = 0; index < (options.repetitions ?? 1); index += 1) {
+    await control.click();
     await waitForToolcraftAnimationFrames(page, 2);
   }
-
-  for (let index = 0; index < repetitions; index += 1) {
-    await zoomOut.click();
-    await waitForToolcraftAnimationFrames(page, 2);
-  }
-  if (options.scenarioId) {
+  if (options.pathId) {
     await attachToolcraftBrowserRuntimeEvidence({
       evidenceType: "performance-viewport",
-      requirementId: options.scenarioId,
+      requirementId: options.pathId,
     });
   }
 }
@@ -70,17 +76,18 @@ export async function readToolcraftCanvasViewport(page: Page): Promise<{
   zoom: number;
 }> {
   return page.evaluate(() => {
-    const canvas = document.querySelector("[data-toolcraft-editable-canvas]");
-    const style = canvas ? window.getComputedStyle(canvas) : null;
-    const zoomText =
-      canvas?.getAttribute("data-canvas-zoom") ??
-      style?.getPropertyValue("--canvas-zoom") ??
-      "1";
+    const world = document.querySelector("[data-toolcraft-canvas-world]");
 
     return {
-      offsetX: Number(canvas?.getAttribute("data-canvas-offset-x") ?? 0),
-      offsetY: Number(canvas?.getAttribute("data-canvas-offset-y") ?? 0),
-      zoom: Number.parseFloat(zoomText) || 1,
+      offsetX: Number(
+        world?.getAttribute("data-toolcraft-canvas-offset-x") ?? 0,
+      ),
+      offsetY: Number(
+        world?.getAttribute("data-toolcraft-canvas-offset-y") ?? 0,
+      ),
+      zoom: Number.parseFloat(
+        world?.getAttribute("data-toolcraft-canvas-zoom") ?? "100",
+      ) || 100,
     };
   });
 }
@@ -112,10 +119,10 @@ export async function expectToolcraftCanvasViewportStable(
     `Expected canvas zoom to stay stable within ${maxZoomDelta}.`,
   ).toBeLessThanOrEqual(maxZoomDelta);
 
-  if (options.scenarioId) {
+  if (options.pathId) {
     await attachToolcraftBrowserRuntimeEvidence({
       evidenceType: "performance-viewport",
-      requirementId: options.scenarioId,
+      requirementId: options.pathId,
     });
   }
 

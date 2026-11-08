@@ -10,6 +10,12 @@ export function getRequiredToolcraftControlPartCoverage(
       return ["anchorGrid.position"];
     case "channelMixer":
       return ["channelMixer.activeChannel", "channelMixer.values"];
+    case "collectionActions":
+      return [
+        "collectionActions.add",
+        "collectionActions.remove",
+        "collectionActions.items",
+      ];
     case "curves":
       return control.variant === "single"
         ? ["curves.points"]
@@ -39,6 +45,8 @@ export function getRequiredToolcraftControlPartCoverage(
       return ["rangeInput.start", "rangeInput.end"];
     case "rangeSlider":
       return ["rangeSlider.lower", "rangeSlider.upper"];
+    case "sourceCollection":
+      return ["sourceCollection.items"];
     case "vector":
       return ["vector.x", "vector.y"];
     default:

@@ -6,6 +6,7 @@ import {
 import type {
   PanelDimensions,
   PanelPoint,
+  PanelSnapPlacement,
   PanelSnapEdge,
   PanelViewport,
 } from "./panel-host-types";
@@ -67,7 +68,7 @@ function getPanelSnapEdge(
   ).edge;
 }
 
-export function resolvePanelSnapPosition({
+export function resolvePanelSnapPlacement({
   dimensions,
   edges,
   margin = panelSnapMarginPx,
@@ -83,7 +84,7 @@ export function resolvePanelSnapPosition({
   velocity: PanelPoint;
   viewport: PanelViewport;
   zone?: number;
-}): PanelPoint | null {
+}): Required<PanelSnapPlacement> | null {
   const projectedPosition = getProjectedPanelPosition(position, velocity);
   const edge = getPanelSnapEdge(projectedPosition, dimensions, viewport, edges, zone);
   const minX = viewport.offsetLeft + margin;
@@ -97,13 +98,70 @@ export function resolvePanelSnapPosition({
 
   if (edge === "top" || edge === "bottom") {
     return {
-      x: clampPanelValue(projectedPosition.x, minX, maxX),
-      y: edge === "top" ? minY : maxY,
+      offset: {
+        x: clampPanelValue(projectedPosition.x, minX, maxX),
+        y: edge === "top" ? minY : maxY,
+      },
+      snapEdge: edge,
     };
   }
 
   return {
-    x: edge === "left" ? minX : maxX,
-    y: clampPanelValue(projectedPosition.y, minY, maxY),
+    offset: {
+      x: edge === "left" ? minX : maxX,
+      y: clampPanelValue(projectedPosition.y, minY, maxY),
+    },
+    snapEdge: edge,
+  };
+}
+
+export function resolvePanelSnapPosition(
+  input: Parameters<typeof resolvePanelSnapPlacement>[0],
+): PanelPoint | null {
+  return resolvePanelSnapPlacement(input)?.offset ?? null;
+}
+
+export function clampPanelPlacementToViewport({
+  dimensions,
+  margin = panelSnapMarginPx,
+  origin,
+  placement,
+  viewport,
+}: {
+  dimensions: PanelDimensions;
+  margin?: number;
+  origin: PanelPoint;
+  placement: PanelSnapPlacement;
+  viewport: PanelViewport;
+}): PanelSnapPlacement {
+  const minX = viewport.offsetLeft + margin;
+  const maxX = viewport.offsetLeft + viewport.width - dimensions.width - margin;
+  const minY = viewport.offsetTop + margin;
+  const maxY = viewport.offsetTop + viewport.height - dimensions.height - margin;
+  const absolutePosition = {
+    x: origin.x + placement.offset.x,
+    y: origin.y + placement.offset.y,
+  };
+  const clampedPosition = {
+    x:
+      placement.snapEdge === "left"
+        ? minX
+        : placement.snapEdge === "right"
+          ? maxX
+          : clampPanelValue(absolutePosition.x, minX, maxX),
+    y:
+      placement.snapEdge === "top"
+        ? minY
+        : placement.snapEdge === "bottom"
+          ? maxY
+          : clampPanelValue(absolutePosition.y, minY, maxY),
+  };
+
+  return {
+    offset: {
+      x: clampedPosition.x - origin.x,
+      y: clampedPosition.y - origin.y,
+    },
+    ...(placement.snapEdge ? { snapEdge: placement.snapEdge } : {}),
   };
 }

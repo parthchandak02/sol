@@ -16,11 +16,14 @@ function Slider<Value extends number | readonly number[]>({
   markerCount,
   markerValues,
   onBlurCapture,
+  onLostPointerCapture,
+  onPointerDraggingChange,
   onPointerCancelCapture,
   onPointerDownCapture,
   onPointerUpCapture,
   onValueChange,
   onValueCommitted,
+  onValueReset,
   orientation = "horizontal",
   resetValue,
   showFill = true,
@@ -47,11 +50,14 @@ function Slider<Value extends number | readonly number[]>({
     max,
     min,
     onBlurCapture,
+    onLostPointerCapture,
+    onPointerDraggingChange,
     onPointerCancelCapture,
     onPointerDownCapture,
     onPointerUpCapture,
     onValueChange,
     onValueCommitted,
+    onValueReset,
     resetValue,
     snapValues,
     step,
@@ -76,6 +82,7 @@ function Slider<Value extends number | readonly number[]>({
       disabled={disabled}
       largeStep={sliderValue.rootLargeStep}
       onBlurCapture={pointerDrag.handleBlurCapture}
+      onLostPointerCapture={pointerDrag.handleLostPointerCapture}
       onPointerCancelCapture={pointerDrag.handlePointerCancelCapture}
       onPointerDownCapture={pointerDrag.handlePointerDownCapture}
       onPointerUpCapture={pointerDrag.handlePointerUpCapture}

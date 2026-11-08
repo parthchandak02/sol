@@ -47,12 +47,12 @@ export function isOutputBackgroundToggleControl(
   );
 }
 
-function sectionHasEqualWidthOutputBackgroundRow(
+function sectionHasEqualWidthBackgroundInfinityRow(
   section: ToolcraftControlsSection | undefined,
-  toggleControlId: string | undefined,
-  colorControlId: string | undefined,
+  backgroundControlId: string | undefined,
+  infinityControlId: string | undefined,
 ): boolean {
-  if (!section || !toggleControlId || !colorControlId) {
+  if (!section || !backgroundControlId || !infinityControlId) {
     return false;
   }
 
@@ -61,9 +61,15 @@ function sectionHasEqualWidthOutputBackgroundRow(
       layoutGroup.layout === "inline" &&
       layoutGroup.columns === 2 &&
       layoutGroup.controls.length === 2 &&
-      layoutGroup.controls[0] === toggleControlId &&
-      layoutGroup.controls[1] === colorControlId,
+      layoutGroup.controls[0] === backgroundControlId &&
+      layoutGroup.controls[1] === infinityControlId,
   );
+}
+
+function getSectionControlOrder(
+  section: ToolcraftControlsSection | undefined,
+): readonly string[] {
+  return section ? Object.keys(section.controls) : [];
 }
 
 export function getToolcraftOutputBackgroundErrors({
@@ -77,57 +83,84 @@ export function getToolcraftOutputBackgroundErrors({
 
   if (!schemaHasOutputBackgroundColorControl(controls)) {
     errors.push(
-      "Product apps with Export PNG must expose a user-facing background color control such as appearance.background or scene.background. Preview, PNG export, and video export must read that runtime value instead of hardcoding the product background.",
+      "Product apps with artifact export must expose a user-facing background color control such as appearance.background or scene.background. Preview, image export, and video export must read that runtime value instead of hardcoding the product background.",
     );
   }
 
   if (!facts.backgroundColorEntry) {
     errors.push(
-      'The "Background" section must contain the renderer-owned background color control, such as appearance.background or scene.background.',
+      'Runtime Setup must contain the renderer-owned background color control, such as appearance.background or scene.background.',
     );
   } else {
     const [, backgroundColorControl] = facts.backgroundColorEntry;
 
-    if (backgroundColorControl.label !== false) {
+    if (getControlLabelText(backgroundColorControl) !== "Background color") {
       errors.push(
-        'The background color control inside the required "Background" section must use label false; the section title already supplies the visible context.',
+        'The background color control inside runtime Setup must use the visible label "Background color".',
       );
     }
   }
 
   if (!schemaHasOutputBackgroundToggleControl(controls)) {
     errors.push(
-      'Product apps with Export PNG must expose export.includeBackground inside the required "Background" section as a Switch labeled "Include". PNG export must pass that runtime value to createToolcraftPngExportCanvas includeBackground; live preview must use shouldIncludeToolcraftPreviewBackground(state); video export keeps the background.',
+      'Product apps with artifact export must expose export.includeBackground in runtime Setup as a Switch labeled "Background". Runtime owns evaluated bounded/Infinity preview background and artifact export owns image alpha while preserving the background for opaque image formats and video.',
     );
   }
 
   if (!facts.includeBackgroundEntry) {
     errors.push(
-      'The "Background" section must contain export.includeBackground as the Include switch.',
+      'Runtime Setup must contain export.includeBackground as the Background switch.',
     );
   } else {
     const [, includeBackgroundControl] = facts.includeBackgroundEntry;
 
     if (includeBackgroundControl.type !== "switch") {
-      errors.push('export.includeBackground must be a Switch control labeled "Include".');
+      errors.push('export.includeBackground must be a Switch control labeled "Background".');
     }
 
-    if (getControlLabelText(includeBackgroundControl) !== "Include") {
+    if (getControlLabelText(includeBackgroundControl) !== "Background") {
       errors.push(
-        'export.includeBackground must use the short visible label "Include"; the Background section title already supplies the rest of the context.',
+        'export.includeBackground must use the visible label "Background" in runtime Setup.',
       );
     }
   }
 
   if (
-    !sectionHasEqualWidthOutputBackgroundRow(
-      facts.backgroundSection,
+    facts.infinityCanvasEntry &&
+    !sectionHasEqualWidthBackgroundInfinityRow(
+      facts.setupSection,
       facts.includeBackgroundEntry?.[0],
-      facts.backgroundColorEntry?.[0],
+      facts.infinityCanvasEntry[0],
     )
   ) {
     errors.push(
-      'The "Background" section must render export.includeBackground and the background color in one two-column inline layoutGroup, with Include on the left and the unlabeled background color on the right.',
+      "Runtime Setup must render Background and Infinity canvas in one two-column inline layoutGroup, with Background on the left.",
+    );
+  }
+
+  const setupControlOrder = getSectionControlOrder(facts.setupSection);
+  const includeIndex = facts.includeBackgroundEntry
+    ? setupControlOrder.indexOf(facts.includeBackgroundEntry[0])
+    : -1;
+  const infinityIndex = facts.infinityCanvasEntry
+    ? setupControlOrder.indexOf(facts.infinityCanvasEntry[0])
+    : includeIndex;
+  const colorIndex = facts.backgroundColorEntry
+    ? setupControlOrder.indexOf(facts.backgroundColorEntry[0])
+    : -1;
+  const aspectRatioIndex = setupControlOrder.findIndex(
+    (controlId) =>
+      facts.setupSection?.controls[controlId]?.target === "canvas.aspectRatio",
+  );
+
+  if (
+    includeIndex >= 0 &&
+    colorIndex >= 0 &&
+    (colorIndex !== Math.max(includeIndex, infinityIndex) + 1 ||
+      (aspectRatioIndex >= 0 && colorIndex >= aspectRatioIndex))
+  ) {
+    errors.push(
+      "Runtime Setup must place Background color directly below the Background/Infinity row and before Aspect ratio.",
     );
   }
 

@@ -44,6 +44,7 @@ type TimelineExpandedContentProps = {
   onDeleteKeyframe: (keyframeId: string) => void;
   onKeyframeDragStart: () => void;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  onLostPointerCapture: () => void;
   onMoveKeyframe: (keyframeId: string, timeSeconds: number) => string | null;
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -91,6 +92,7 @@ export function TimelineExpandedContent({
   onDeleteKeyframe,
   onKeyframeDragStart,
   onKeyDown,
+  onLostPointerCapture,
   onMoveKeyframe,
   onPointerDown,
   onPointerMove,
@@ -236,6 +238,7 @@ export function TimelineExpandedContent({
         data-timeline-track-end={timelineExpandedTrackEndOffsetPx}
         data-timeline-track-start={timelineExpandedTrackStartOffsetPx}
         onKeyDown={handleExpandedKeyDown}
+        onLostPointerCapture={onLostPointerCapture}
         onPointerCancel={onPointerUp}
         onPointerDown={handleExpandedPointerDown}
         onPointerMove={onPointerMove}

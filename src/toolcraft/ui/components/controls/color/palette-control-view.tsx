@@ -28,6 +28,7 @@ export function PaletteControlView(props: PaletteControlViewProps) {
           <button
             key={palette.name}
             type="button"
+            data-slot="palette-family-swatch"
             aria-label={`Primary family ${palette.name}`}
             aria-pressed={isSelected}
             disabled={props.disabled}
@@ -87,6 +88,7 @@ export function PaletteControlView(props: PaletteControlViewProps) {
             <button
               key={shade}
               type="button"
+              data-slot="palette-shade-swatch"
               aria-label={`Primary shade ${shade}`}
               aria-pressed={isSelected}
               disabled={props.disabled}

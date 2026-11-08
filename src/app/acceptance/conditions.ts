@@ -26,7 +26,7 @@ export function getConditionValidationErrors({
   label,
 }: {
   condition: ToolcraftControlConditionSchema;
-  conditionName: "disabledWhen" | "visibleWhen";
+  conditionName: "disabledWhen";
   controlTargets: ReadonlySet<string>;
   label: string;
 }): string[] {

@@ -4,20 +4,26 @@ import test from "node:test";
 import { evaluateToolcraftProductBoundary } from "./toolcraft-product-boundary.mjs";
 import { createToolcraftProductBoundaryFixture as createFixture } from "./toolcraft-product-boundary-test-fixtures.mjs";
 
-test("accepts an open product composition and safe primitives", async (context) => {
+test("accepts the public product constructors and safe primitives", async (context) => {
   const rootDir = await createFixture(context, {
     "src/app/app-composition.tsx": `
-      import type { ToolcraftAppComposition } from "@/toolcraft/runtime/react";
-      import { Button } from "@/toolcraft/ui/primitives";
+      import { composeToolcraftApp } from "@/toolcraft/runtime/react";
+      import { Button } from "@/toolcraft/ui";
       import { appSchema } from "../domain/schema";
-      export const appComposition: ToolcraftAppComposition = {
-        canvasContent: <Button>Render</Button>,
-        schema: appSchema,
-      };
+      export const appComposition = composeToolcraftApp(appSchema, {
+        scene: { canvasContent: <Button>Render</Button> },
+      });
     `,
     "src/domain/schema.ts": `
-      import { defineToolcraft } from "@/toolcraft/runtime/react";
-      export const appSchema = defineToolcraft({ id: "fixture", controls: [] });
+      import { defineToolcraft } from "@/toolcraft/runtime";
+      export const appSchema = defineToolcraft({
+        base: {
+          canvas: { enabled: true },
+          identity: { id: "fixture", title: "Fixture" },
+          panels: {},
+        },
+        modules: [],
+      });
     `,
     "src/main.tsx": `import { appComposition } from "./app/app-composition"; void appComposition;`,
   });
@@ -29,6 +35,62 @@ test("accepts an open product composition and safe primitives", async (context) 
 
   assert.deepEqual(result.violations, []);
   assert.equal(result.productSourceCount, 2);
+});
+
+test("rejects old, copied, manual, and deep module construction", async (context) => {
+  const rootDir = await createFixture(context, {
+    "src/app/app-composition.tsx": `
+      import type { ToolcraftAppComposition } from "@/toolcraft/runtime/react";
+      const manualComposition: ToolcraftAppComposition = { schema };
+      export const appComposition = manualComposition;
+    `,
+    "src/app/app-schema.ts": `
+      import { defineToolcraft, imageExportModule } from "@/toolcraft/runtime";
+      defineToolcraft({ canvas: { enabled: true }, panels: {} });
+      defineToolcraft({
+        base: {
+          canvas: { enabled: true },
+          export: { png: {} },
+          identity: { id: "manual", title: "Manual" },
+          panels: { layers: true, timeline: true },
+        },
+        modules: [{ ...imageExportModule() }],
+      });
+    `,
+    "src/domain/deep.ts": `
+      import { imageExportModule } from "@/toolcraft/runtime/modules/built-ins/image-export";
+      import { resolveToolcraftProductDefinition } from "@/toolcraft/runtime/schema/resolve-toolcraft-product-definition";
+      import ModuleInternals = require("@/toolcraft/runtime/modules/contract/contribution");
+      type Catalog = import("@/toolcraft/runtime/modules/built-in-catalog").Catalog;
+      void import("@/toolcraft/runtime/modules/resolution/resolve-product-modules");
+      require("@/toolcraft/runtime/modules/contributions/media-policy-contributions");
+      void import(runtimeSpecifier);
+      void imageExportModule;
+      void resolveToolcraftProductDefinition;
+      void ModuleInternals;
+      void (null as unknown as Catalog);
+    `,
+  });
+
+  const result = await evaluateToolcraftProductBoundary({ rootDir });
+
+  assert.deepEqual(
+    result.violations.map(({ kind }) => kind),
+    [
+      "product-constructor",
+      "product-constructor",
+      "product-constructor",
+      "product-constructor",
+      "product-constructor",
+      "product-constructor",
+      "runtime-product-module-ownership",
+      "runtime-product-module-ownership",
+      "runtime-product-module-ownership",
+      "runtime-product-module-ownership",
+      "runtime-product-module-ownership",
+      "non-static-module-specifier",
+    ],
+  );
 });
 
 test("finds host surfaces outside src/app through aliases and sibling shells", async (context) => {
@@ -75,29 +137,45 @@ test("checks Vite root-absolute imports against the same product boundary", asyn
   );
 });
 
-test("finds built-in controls through re-exports, aliases, namespaces, and dynamic imports", async (context) => {
+test("keeps model import, topology, and repair infrastructure runtime-owned", async (context) => {
   const rootDir = await createFixture(context, {
-    "src/features/control-bridge.ts": `
-      export { SliderControl as ProductSlider } from "@/toolcraft/ui/components/controls";
-      export { Color as ProductColor } from "@/toolcraft/ui";
+    "src/features/direct-loaders.ts": `
+      import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+      import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+      void GLTFLoader;
+      void FBXLoader;
     `,
-    "src/features/dynamic.ts": `
-      export async function loadControls() {
-        return import("@/toolcraft/ui/components/controls/slider");
+    "src/features/gltf-transform.ts": `
+      import { NodeIO } from "@gltf-transform/core";
+      void NodeIO;
+    `,
+    "src/features/runtime-internals.ts": `
+      export { createModelImportCoordinator } from "@/toolcraft/runtime/model-import";
+      export async function loadRepairInternals() {
+        return import("@/toolcraft/runtime/model-import/topology");
       }
     `,
-    "src/features/namespace.ts": `
-      import * as Controls from "@/toolcraft/ui";
-      export const Slider = Controls.Slider;
+    "src/features/safe-three-renderer.ts": `
+      import { Scene, WebGLRenderer } from "three";
+      export const scene = new Scene();
+      export const rendererType = WebGLRenderer;
     `,
   });
 
   const result = await evaluateToolcraftProductBoundary({ rootDir });
 
-  assert.equal(result.violations.length, 4);
+  assert.equal(result.violations.length, 5);
   assert.equal(
-    result.violations.every((violation) => violation.kind === "built-in-control"),
+    result.violations.every(
+      (violation) => violation.kind === "runtime-model-import-ownership",
+    ),
     true,
+  );
+  assert.equal(
+    result.violations.some((violation) =>
+      violation.repoPath.endsWith("safe-three-renderer.ts"),
+    ),
+    false,
   );
 });
 
@@ -130,6 +208,123 @@ test("rejects production imports of tests through relative and source aliases", 
   assert.deepEqual(
     result.violations.map((violation) => violation.kind),
     ["production-test-import", "production-test-import"],
+  );
+});
+
+test("keeps capability proof recipes verification-owned", async (context) => {
+  const proofCatalogPath = "src/app/acceptance/capability-proofs/catalog.ts";
+  const starterVerificationEntryPath = "src/app/app-acceptance.ts";
+  const verificationOwnerPath = "src/app/acceptance/validate-coverage.ts";
+  const runtimeModulePath = "src/toolcraft/runtime/modules/product-module.ts";
+  const rootDir = await createFixture(context, {
+    [proofCatalogPath]: "export const proofCatalog = {};\n",
+    [starterVerificationEntryPath]:
+      "export const validateStarter = () => [];\n",
+    [verificationOwnerPath]: "export const validateCoverage = () => [];\n",
+    [runtimeModulePath]: `
+      import { proofCatalog } from "@/app/acceptance/capability-proofs/catalog";
+      import { validateStarter } from "@/app/app-acceptance";
+      import { validateCoverage } from "@/app/acceptance/validate-coverage";
+      export const runtimeProofCatalog = proofCatalog;
+      export const runtimeStarterValidation = validateStarter;
+      export const runtimeValidation = validateCoverage;
+    `,
+    "src/product/import-proof.ts": `
+      import { proofCatalog } from "@/app/acceptance/capability-proofs/catalog";
+      export const productProofCatalog = proofCatalog;
+    `,
+  });
+
+  const result = await evaluateToolcraftProductBoundary({
+    protectedFilePaths: [proofCatalogPath],
+    rootDir,
+  });
+
+  assert.deepEqual(
+    result.violations.map((violation) => violation.kind),
+    [
+      "capability-proof-boundary",
+      "capability-proof-boundary",
+      "starter-verification-boundary",
+      "starter-verification-boundary",
+    ],
+  );
+  assert.deepEqual(
+    result.violations.map((violation) => violation.repoPath),
+    [
+      "src/product/import-proof.ts",
+      runtimeModulePath,
+      runtimeModulePath,
+      runtimeModulePath,
+    ],
+  );
+});
+
+test("keeps every runtime production surface out of starter verification", async (context) => {
+  const runtimePaths = [
+    "src/toolcraft/runtime/modules/aliased.ts",
+    "src/toolcraft/runtime/panels/performance.ts",
+    "src/toolcraft/runtime/react/root-absolute.ts",
+    "src/toolcraft/runtime/schema/relative.ts",
+    "src/toolcraft/runtime/state/starter.ts",
+    "src/toolcraft/runtime/testing/evidence.ts",
+  ];
+  const rootDir = await createFixture(context, {
+    "src/app/acceptance/allowed-verification.ts": `
+      import { proofCatalog } from "./capability-proofs";
+      export const allowedProofCatalog = proofCatalog;
+    `,
+    "src/app/acceptance/capability-proofs/catalog.ts":
+      "export const proofCatalog = {};\n",
+    "src/app/acceptance/capability-proofs/index.ts":
+      'export { proofCatalog } from "./catalog";\n',
+    "src/app/acceptance/validate-coverage.ts":
+      "export const validateCoverage = () => [];\n",
+    "src/app/app-acceptance.ts":
+      "export const validateStarter = () => [];\n",
+    "src/app/app-performance.ts":
+      "export const validatePerformance = () => [];\n",
+    "src/app/test-evidence/index.ts": "export const browserEvidence = {};\n",
+    "e2e/browser-runtime-evidence.ts": "export const runtimeEvidence = {};\n",
+    [runtimePaths[0]]: `
+      export { proofCatalog } from "@/app/acceptance/capability-proofs";
+    `,
+    [runtimePaths[1]]: `
+      import { validatePerformance } from "@/app/app-performance";
+      export const runtimePerformanceValidation = validatePerformance;
+    `,
+    [runtimePaths[2]]: `
+      export const loadEvidence = () => import("/src/app/test-evidence");
+    `,
+    [runtimePaths[3]]: `
+      export { validateCoverage } from "../../../app/acceptance/validate-coverage";
+    `,
+    [runtimePaths[4]]: `
+      import { validateStarter } from "@/app/app-acceptance";
+      export const runtimeStarterValidation = validateStarter;
+    `,
+    [runtimePaths[5]]: `
+      export { runtimeEvidence } from "/e2e/browser-runtime-evidence";
+    `,
+  });
+
+  const result = await evaluateToolcraftProductBoundary({ rootDir });
+  const runtimeVerificationViolations = result.violations.filter(
+    (violation) =>
+      violation.kind === "capability-proof-boundary" ||
+      violation.kind === "starter-verification-boundary",
+  );
+
+  assert.deepEqual(
+    runtimeVerificationViolations.map((violation) => violation.repoPath).sort(),
+    [...runtimePaths].sort(),
+  );
+  assert.equal(
+    result.violations.some(
+      (violation) =>
+        violation.repoPath === "src/app/acceptance/allowed-verification.ts",
+    ),
+    false,
   );
 });
 
@@ -175,6 +370,7 @@ test("rejects product CSS that can restyle the signed host", async (context) => 
       "product-global-css-import",
       "product-global-css-import",
       "product-global-css",
+      "public-component-chrome",
       "product-global-css",
       "product-global-css",
       "product-global-css-import",
@@ -186,12 +382,10 @@ test("rejects product CSS that can restyle the signed host", async (context) => 
     ),
     false,
   );
-  assert.equal(
-    result.violations.some((violation) =>
-      violation.repoPath.endsWith("safe-descendant.module.css"),
-    ),
-    false,
-  );
+  assert.equal(result.violations.some((violation) =>
+    violation.repoPath.endsWith("safe-descendant.module.css") &&
+    violation.kind === "public-component-chrome"
+  ), true);
   assert.equal(
     result.violations.some((violation) =>
       violation.repoPath.endsWith("safe-sibling.module.css"),
@@ -232,6 +426,8 @@ test("allows functional selectors only when every anchoring branch stays local",
   assert.deepEqual(
     result.violations.map((violation) => violation.repoPath),
     [
+      "src/features/safe-is.module.css",
+      "src/features/safe-where.module.css",
       "src/features/unsafe-has.module.css",
       "src/features/unsafe-is.module.css",
       "src/features/unsafe-not.module.css",
@@ -247,9 +443,9 @@ test("rejects product source imported from outside the scanned source roots", as
       import { ToolcraftApp } from "@/toolcraft/runtime/react";
       export const outsideProduct = ToolcraftApp;
     `,
-    "src/app/app-composition.tsx": `
+    "src/features/product.tsx": `
       import { outsideProduct } from "../../outside-product";
-      export const appComposition = { canvasContent: outsideProduct };
+      export const productContent = outsideProduct;
     `,
   });
 
@@ -258,6 +454,10 @@ test("rejects product source imported from outside the scanned source roots", as
   assert.deepEqual(
     result.violations.map((violation) => violation.kind),
     ["source-boundary-escape"],
+  );
+  assert.match(
+    result.violations[0].message,
+    /Move outside-product\.tsx under src before importing it/u,
   );
 });
 
@@ -283,6 +483,7 @@ test("rejects global style injection from product JSX", async (context) => {
     [
       "global-style-injection",
       "global-style-injection",
+      "native-control-recreation",
       "global-style-injection",
     ],
   );

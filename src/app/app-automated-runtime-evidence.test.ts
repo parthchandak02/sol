@@ -7,7 +7,6 @@ import {
   type ToolcraftVitestRuntimeRequirement,
 } from "../../scripts/toolcraft-vitest-runtime-contract.mjs";
 import { appAcceptance } from "./app-acceptance";
-import { appPerformance } from "./app-performance";
 
 test(TOOLCRAFT_VITEST_RUNTIME_MARKER_TEST_NAME, async ({ annotate }) => {
   const requirements: ToolcraftVitestRuntimeRequirement[] = [
@@ -17,13 +16,6 @@ test(TOOLCRAFT_VITEST_RUNTIME_MARKER_TEST_NAME, async ({ annotate }) => {
         kind: "acceptance" as const,
         requirementId: entry.id,
         testName: entry.automatedTestName,
-      })),
-    ...appPerformance.scenarios
-      .filter((scenario) => scenario.automated)
-      .map((scenario) => ({
-        kind: "performance" as const,
-        requirementId: scenario.id,
-        testName: scenario.automatedTestName,
       })),
   ];
 

@@ -11,6 +11,7 @@ import {
 
 type TimelineClockOptions = {
   durationSeconds: number;
+  getCurrentTimeSeconds: () => number;
   isHoverPaused: boolean;
   isLooping: boolean;
   isPlaying: boolean;
@@ -20,6 +21,7 @@ type TimelineClockOptions = {
 };
 
 type TimelineScrubberOptions = {
+  commitCurrentTimeSeconds: () => void;
   currentTimeSeconds: number;
   disabled?: boolean;
   durationSeconds: number;
@@ -29,6 +31,7 @@ type TimelineScrubberOptions = {
 
 type TimelineScrubberResult = {
   handleScrubKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  handleScrubLostPointerCapture: () => void;
   handleScrubPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   handleScrubPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
   handleScrubPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -66,6 +69,7 @@ function getKeyboardScrubTime({
 
 export function useTimelineClock({
   durationSeconds,
+  getCurrentTimeSeconds,
   isHoverPaused,
   isLooping,
   isPlaying,
@@ -90,24 +94,27 @@ export function useTimelineClock({
       const elapsedSeconds = (timestamp - previousTimestamp) / 1000;
 
       previousTimestamp = timestamp;
-      setCurrentTimeSeconds((currentValue) => {
-        const nextValue = currentValue + elapsedSeconds;
+      const nextValue = getCurrentTimeSeconds() + elapsedSeconds;
 
-        if (nextValue < durationSeconds) {
-          return nextValue;
-        }
+      if (nextValue < durationSeconds) {
+        setCurrentTimeSeconds(nextValue);
+        frame = window.requestAnimationFrame(tick);
+        return;
+      }
 
-        if (isLooping) {
-          return getToolcraftTimelineLoopTime({
+      if (isLooping) {
+        setCurrentTimeSeconds(
+          getToolcraftTimelineLoopTime({
             currentTimeSeconds: nextValue,
             durationSeconds,
-          });
-        }
+          }),
+        );
+        frame = window.requestAnimationFrame(tick);
+        return;
+      }
 
-        setIsPlaying(false);
-        return durationSeconds;
-      });
-      frame = window.requestAnimationFrame(tick);
+      setCurrentTimeSeconds(durationSeconds);
+      setIsPlaying(false);
     };
 
     frame = window.requestAnimationFrame(tick);
@@ -115,6 +122,7 @@ export function useTimelineClock({
     return () => window.cancelAnimationFrame(frame);
   }, [
     durationSeconds,
+    getCurrentTimeSeconds,
     isHoverPaused,
     isLooping,
     isPlaying,
@@ -125,6 +133,7 @@ export function useTimelineClock({
 }
 
 export function useTimelineScrubber({
+  commitCurrentTimeSeconds,
   currentTimeSeconds,
   disabled = false,
   durationSeconds,
@@ -132,13 +141,38 @@ export function useTimelineScrubber({
   setIsPlaying,
 }: TimelineScrubberOptions): TimelineScrubberResult {
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const isScrubbingRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const commitCurrentTimeSecondsRef = useRef(commitCurrentTimeSeconds);
   const stripRef = useRef<HTMLDivElement | null>(null);
+  commitCurrentTimeSecondsRef.current = commitCurrentTimeSeconds;
 
-  useEffect(() => {
-    if (disabled && isScrubbing) {
+  const finishScrub = React.useCallback((): void => {
+    if (!isScrubbingRef.current) {
+      return;
+    }
+
+    isScrubbingRef.current = false;
+    if (isMountedRef.current) {
       setIsScrubbing(false);
     }
-  }, [disabled, isScrubbing]);
+    commitCurrentTimeSecondsRef.current();
+  }, []);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      finishScrub();
+    };
+  }, [finishScrub]);
+
+  useEffect(() => {
+    if (disabled) {
+      finishScrub();
+    }
+  }, [disabled, finishScrub]);
 
   const getScrubGeometry = (): { rect: DOMRect; trackStart: number; trackWidth: number } | null => {
     const rect = stripRef.current?.getBoundingClientRect();
@@ -212,6 +246,7 @@ export function useTimelineScrubber({
 
     event.preventDefault();
     setCurrentTimeSeconds(clampToolcraftTimelineTime(nextTime, durationSeconds));
+    commitCurrentTimeSeconds();
   };
   const handleScrubPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (disabled || !canStartScrubbingFromPointerEvent(event)) {
@@ -220,31 +255,33 @@ export function useTimelineScrubber({
 
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    isScrubbingRef.current = true;
     setIsPlaying(false);
     setIsScrubbing(true);
     setCurrentTimeFromClientX(event.clientX);
   };
   const handleScrubPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (!isScrubbing) {
+    if (!isScrubbingRef.current) {
       return;
     }
 
     setCurrentTimeFromClientX(event.clientX);
   };
   const handleScrubPointerUp = (event: React.PointerEvent<HTMLDivElement>): void => {
-    if (!isScrubbing) {
+    if (!isScrubbingRef.current) {
       return;
     }
+
+    finishScrub();
 
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-
-    setIsScrubbing(false);
   };
 
   return {
     handleScrubKeyDown,
+    handleScrubLostPointerCapture: finishScrub,
     handleScrubPointerDown,
     handleScrubPointerMove,
     handleScrubPointerUp,

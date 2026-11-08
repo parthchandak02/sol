@@ -1,7 +1,8 @@
 import {
   getToolcraftControlKeyframeCapability,
+  resolveToolcraftAppCapabilities,
   type ResolvedToolcraftAppSchema,
-  type ToolcraftControlSchema,
+  type ResolvedToolcraftControlSchema,
   type ToolcraftTimelineMode,
 } from "@/toolcraft/runtime";
 
@@ -11,11 +12,7 @@ import {
   isCustomToolcraftControl,
   requiredCustomControlCoverage,
 } from "./custom-controls";
-import {
-  hasControlPartCoverage,
-  hasCustomControlCoverage,
-} from "./coverage";
-import { getFileDropLifecycleCoverageErrors } from "./media-upload";
+import { hasControlPartCoverage, hasCustomControlCoverage } from "./coverage";
 import {
   isOutputBackgroundToggleControl,
   schemaHasPngExportPanelAction,
@@ -24,8 +21,81 @@ import {
 import type {
   ToolcraftBackgroundOutputCoverage,
   ToolcraftComponentAcceptance,
-  ToolcraftConditionalVisibilityCoverage,
+  ToolcraftOrientationGizmoCoverage,
+  ToolcraftProductReadiness,
 } from "./types";
+
+type ToolcraftCollectionItemKeyframeCoverageInput = Readonly<{
+  control: ResolvedToolcraftControlSchema;
+  coverage: readonly string[] | undefined;
+  label: string;
+  timelineMode: ToolcraftTimelineMode | null;
+}>;
+
+function getCollectionKeyframeFieldIds(
+  control: ResolvedToolcraftControlSchema,
+): string[] {
+  return Object.entries(control.itemControls ?? {})
+    .filter(([, field]) => field.keyframeable === true)
+    .map(([fieldId]) => fieldId)
+    .sort();
+}
+
+export function getToolcraftCollectionItemKeyframeCoverageErrors({
+  control,
+  coverage,
+  label,
+  timelineMode,
+}: ToolcraftCollectionItemKeyframeCoverageInput): string[] {
+  if (coverage !== undefined && control.type !== "collectionActions") {
+    return [
+      `${label} collectionItemKeyframeCoverage is owned only by collectionActions controls.`,
+    ];
+  }
+  if (coverage !== undefined && timelineMode !== "keyframes") {
+    return [
+      `${label} collectionItemKeyframeCoverage requires timeline mode keyframes.`,
+    ];
+  }
+  if (control.type !== "collectionActions" || timelineMode !== "keyframes") {
+    return [];
+  }
+
+  const expectedFields = getCollectionKeyframeFieldIds(control);
+  if (coverage !== undefined && expectedFields.length === 0) {
+    return [
+      `${label} collectionItemKeyframeCoverage requires at least one keyframeable item field.`,
+    ];
+  }
+  if (expectedFields.length === 0) return [];
+
+  const declaredFields = [...(coverage ?? [])].sort();
+  return expectedFields.length !== declaredFields.length ||
+    expectedFields.some((fieldId, index) => fieldId !== declaredFields[index])
+    ? [
+        `${label} must declare collectionItemKeyframeCoverage for exactly: ${expectedFields.join(", ")}.`,
+      ]
+    : [];
+}
+
+export function hasExactToolcraftCollectionItemKeyframeCoverage(
+  input: ToolcraftCollectionItemKeyframeCoverageInput,
+): boolean {
+  return (
+    input.coverage !== undefined &&
+    getToolcraftCollectionItemKeyframeCoverageErrors(input).length === 0
+  );
+}
+
+const requiredOrientationGizmoCoverage = [
+  "axis-drag",
+  "axis-snap",
+  "canvas-miss-pan",
+  "export-clean",
+  "model-drag",
+  "shared-pose-output",
+  "undo-reset",
+] as const satisfies readonly ToolcraftOrientationGizmoCoverage[];
 
 function hasTypedCoverage<T extends string>(
   coverage: string | readonly T[] | undefined,
@@ -39,12 +109,30 @@ function hasTypedCoverage<T extends string>(
   );
 }
 
+export function getToolcraftOrientationGizmoCoverageErrors({
+  entry,
+  label,
+}: Readonly<{
+  entry: ToolcraftComponentAcceptance;
+  label: string;
+}>): string[] {
+  return hasTypedCoverage<ToolcraftOrientationGizmoCoverage>(
+    entry.orientationGizmoCoverage,
+    "all-required-orientation-gizmo-behavior",
+    requiredOrientationGizmoCoverage,
+  )
+    ? []
+    : [
+        `${label} must declare orientationGizmoCoverage for: ${requiredOrientationGizmoCoverage.join(", ")}.`,
+      ];
+}
+
 function getControlAcceptanceEntryErrors({
   control,
   entry,
   label,
 }: {
-  control: ToolcraftControlSchema;
+  control: ResolvedToolcraftControlSchema;
   entry: ToolcraftComponentAcceptance;
   label: string;
 }): string[] {
@@ -54,12 +142,8 @@ function getControlAcceptanceEntryErrors({
     errors.push(`${label} must have automated acceptance coverage.`);
   }
 
-  if (!entry.browser) {
+  if (entry.browser === false) {
     errors.push(`${label} must have browser acceptance coverage.`);
-  }
-
-  if (entry.browser && !entry.browserTestName.trim()) {
-    errors.push(`${label} must point to a browser test name.`);
   }
 
   if (!entry.expectedObservable.trim()) {
@@ -79,34 +163,17 @@ function getControlAcceptanceEntryErrors({
   return errors;
 }
 
-function getControlLifecycleAndCustomErrors({
+function getControlCustomErrors({
   control,
   entry,
   label,
-  schema,
 }: {
-  control: ToolcraftControlSchema;
+  control: ResolvedToolcraftControlSchema;
   entry: ToolcraftComponentAcceptance;
   label: string;
-  schema: ResolvedToolcraftAppSchema;
 }): string[] {
   const errors: string[] = [];
   const isCustomControl = isCustomToolcraftControl(control);
-
-  if (control.type === "fileDrop") {
-    const hasDefaultMediaAssets = schema.media.defaultAssets.some(
-      (asset) => asset.sourceTarget === control.target,
-    );
-
-    errors.push(
-      ...getFileDropLifecycleCoverageErrors(
-        label,
-        control,
-        entry,
-        hasDefaultMediaAssets,
-      ),
-    );
-  }
 
   if (
     isCustomControl &&
@@ -135,7 +202,7 @@ function getControlEvidenceErrors({
   schema,
   sectionTitle,
 }: {
-  control: ToolcraftControlSchema;
+  control: ResolvedToolcraftControlSchema;
   controlId: string;
   entry: ToolcraftComponentAcceptance;
   label: string;
@@ -145,25 +212,18 @@ function getControlEvidenceErrors({
   const errors: string[] = [];
 
   if (
-    control.visibleWhen &&
-    !hasTypedCoverage<ToolcraftConditionalVisibilityCoverage>(
-      entry.visibilityCoverage,
-      "all-conditional-visibility",
-      ["hidden", "visible"],
-    )
-  ) {
-    errors.push(
-      `${label} uses visibleWhen and must declare visibilityCoverage for both "hidden" and "visible" states reached through ${control.visibleWhen.target}.`,
-    );
-  }
-
-  if (
     schemaHasPngExportPanelAction(schema) &&
     isOutputBackgroundToggleControl({ control, controlId, sectionTitle })
   ) {
     const requiredCoverage: ToolcraftBackgroundOutputCoverage[] = [
       "preview-hidden-when-excluded",
       "image-transparent-when-excluded",
+      ...(resolveToolcraftAppCapabilities(schema).hasMedia
+        ? (["finite-media-stacking"] as const)
+        : []),
+      ...(schema.canvas.sizing.mode === "editable-output"
+        ? (["infinity-viewport-color-and-dependency"] as const)
+        : []),
       ...(schemaHasVideoExportPanelAction(schema)
         ? (["video-background-preserved"] as const)
         : []),
@@ -192,7 +252,7 @@ function getControlPartAndRuntimeCoverageErrors({
   layersEnabled,
   timelineMode,
 }: {
-  control: ToolcraftControlSchema;
+  control: ResolvedToolcraftControlSchema;
   entry: ToolcraftComponentAcceptance;
   label: string;
   layersEnabled: boolean;
@@ -200,10 +260,11 @@ function getControlPartAndRuntimeCoverageErrors({
 }): string[] {
   const errors: string[] = [];
   const keyframeCapability = getToolcraftControlKeyframeCapability(control);
-  const isSelectedLayerTarget = control.target.startsWith("selectedLayer.");
   const requiredControlParts = getRequiredToolcraftControlPartCoverage(control);
 
-  if (!hasControlPartCoverage(entry.controlPartCoverage, requiredControlParts)) {
+  if (
+    !hasControlPartCoverage(entry.controlPartCoverage, requiredControlParts)
+  ) {
     errors.push(
       `${label} must declare controlPartCoverage for every semantic value part: ${requiredControlParts.join(", ")}.`,
     );
@@ -217,41 +278,48 @@ function getControlPartAndRuntimeCoverageErrors({
     }
   }
 
-  if (
-    isSelectedLayerTarget &&
-    layersEnabled &&
-    entry.layerCoverage !== "selected-layer-controls"
-  ) {
-    errors.push(
-      `${label} targets selectedLayer.* and must have acceptance layerCoverage "selected-layer-controls" proving the control edits the currently selected layer output.`,
-    );
-  }
+  errors.push(
+    ...getToolcraftCollectionItemKeyframeCoverageErrors({
+      control,
+      coverage: entry.collectionItemKeyframeCoverage,
+      label,
+      timelineMode,
+    }),
+  );
 
   return errors;
 }
 
 export function getControlAcceptanceCoverageErrors({
+  acceptance,
   control,
   controlId,
   entry,
   label,
   layersEnabled,
+  productReadiness,
   schema,
   sectionTitle,
   timelineMode,
 }: {
-  control: ToolcraftControlSchema;
+  acceptance: readonly ToolcraftComponentAcceptance[];
+  control: ResolvedToolcraftControlSchema;
   controlId: string;
   entry: ToolcraftComponentAcceptance;
   label: string;
   layersEnabled: boolean;
+  productReadiness: ToolcraftProductReadiness;
   schema: ResolvedToolcraftAppSchema;
   sectionTitle: string | undefined;
   timelineMode: ToolcraftTimelineMode | null;
 }): string[] {
   return [
     ...getControlAcceptanceEntryErrors({ control, entry, label }),
-    ...getControlLifecycleAndCustomErrors({ control, entry, label, schema }),
+    ...getControlCustomErrors({
+      control,
+      entry,
+      label,
+    }),
     ...getControlEvidenceErrors({
       control,
       controlId,

@@ -1,6 +1,8 @@
-import type {
-  ToolcraftActionSchema,
-  ToolcraftControlSchema,
+import {
+  getToolcraftSliderStepPositionCount,
+  TOOLCRAFT_VISUAL_DISCRETE_POSITION_LIMIT,
+  type ToolcraftActionSchema,
+  type ToolcraftControlSchema,
 } from "@/toolcraft/runtime";
 
 import {
@@ -12,34 +14,8 @@ import { getControlLabelText } from "./controls";
 import { normalizeToolcraftSemanticText } from "./semantic";
 import type { ToolcraftVisibleControl } from "./types";
 
-const MAX_VISUAL_DISCRETE_POSITION_COUNT = 32;
-
-function getStepPositionCount(control: ToolcraftControlSchema): number | undefined {
-  if (
-    typeof control.step !== "number" ||
-    typeof control.min !== "number" ||
-    typeof control.max !== "number" ||
-    !Number.isFinite(control.step) ||
-    !Number.isFinite(control.min) ||
-    !Number.isFinite(control.max) ||
-    control.step <= 0 ||
-    control.max <= control.min
-  ) {
-    return undefined;
-  }
-
-  const rawStepCount = (control.max - control.min) / control.step;
-  const roundedStepCount = Math.round(rawStepCount);
-  const intervalCount =
-    Math.abs(rawStepCount - roundedStepCount) < Number.EPSILON * 100
-      ? roundedStepCount
-      : Math.floor(rawStepCount) + 1;
-
-  return Math.max(2, intervalCount + 1);
-}
-
 export function getStepMarkerCount(control: ToolcraftControlSchema): number | undefined {
-  return getStepPositionCount(control);
+  return getToolcraftSliderStepPositionCount(control);
 }
 
 function isIntegerStepDomain(control: ToolcraftControlSchema): boolean {
@@ -56,7 +32,7 @@ function isIntegerStepDomain(control: ToolcraftControlSchema): boolean {
 function shouldUseVisualDiscreteSlider(
   control: ToolcraftControlSchema,
 ): boolean {
-  const positionCount = getStepPositionCount(control);
+  const positionCount = getToolcraftSliderStepPositionCount(control);
 
   if (
     control.sliderValueKind !== "discrete" ||
@@ -65,7 +41,7 @@ function shouldUseVisualDiscreteSlider(
   ) {
     return false;
   }
-  return positionCount <= MAX_VISUAL_DISCRETE_POSITION_COUNT;
+  return positionCount <= TOOLCRAFT_VISUAL_DISCRETE_POSITION_LIMIT;
 }
 
 export function getSliderVariantClassificationErrors({
@@ -77,7 +53,7 @@ export function getSliderVariantClassificationErrors({
   label: string;
 }): string[] {
   const errors: string[] = [];
-  const positionCount = getStepPositionCount(control);
+  const positionCount = getToolcraftSliderStepPositionCount(control);
 
   if (!positionCount) {
     return errors;
@@ -103,7 +79,7 @@ export function getSliderVariantClassificationErrors({
 
   if (
     control.variant === "discrete" &&
-    positionCount > MAX_VISUAL_DISCRETE_POSITION_COUNT
+    positionCount > TOOLCRAFT_VISUAL_DISCRETE_POSITION_LIMIT
   ) {
     errors.push(
       `${label} declares variant "discrete" with ${positionCount} positions, which would overload tick markers. Keep it stepped continuous or use a different control.`,
@@ -168,7 +144,6 @@ export function getCurveIntentError(
 
 export function getToggleControlLabelError(
   control: ToolcraftControlSchema,
-  sectionTitle?: string,
 ): string | undefined {
   if (control.type !== "switch" && control.type !== "checkbox") {
     return undefined;
@@ -178,15 +153,6 @@ export function getToggleControlLabelError(
 
   if (/^(enable|disable)\b/i.test(label)) {
     return `toggle labels must name the setting context only; use "CRT", "Background", "Glow", or "Loop" instead of "${label}".`;
-  }
-
-  if (
-    label &&
-    sectionTitle &&
-    normalizeToolcraftSemanticText(label) ===
-      normalizeToolcraftSemanticText(sectionTitle)
-  ) {
-    return `toggle label "${label}" duplicates section title "${sectionTitle}". Use a shorter contextual label such as "Include" or rename the toggle to a more specific setting.`;
   }
 
   return undefined;
@@ -242,36 +208,4 @@ export function getAnimationIntentControlText({
     control.target,
     getControlLabelText(control),
   ].join(" ");
-}
-
-const SEGMENTED_CONTROL_MAX_OPTIONS = 4;
-const SEGMENTED_CONTROL_MAX_OPTION_LABEL_LENGTH = 9;
-const SEGMENTED_CONTROL_MAX_TOTAL_LABEL_LENGTH = 24;
-
-export function getSegmentedControlLayoutError(
-  control: ToolcraftControlSchema,
-): string | null {
-  if (control.type !== "segmented") {
-    return null;
-  }
-
-  const labels = control.options?.map((option) => option.label.trim()) ?? [];
-  const totalLabelLength = labels.reduce((total, label) => total + label.length, 0);
-  const longLabels = labels.filter(
-    (label) => label.length > SEGMENTED_CONTROL_MAX_OPTION_LABEL_LENGTH,
-  );
-
-  if (
-    labels.length > SEGMENTED_CONTROL_MAX_OPTIONS ||
-    longLabels.length > 0 ||
-    totalLabelLength > SEGMENTED_CONTROL_MAX_TOTAL_LABEL_LENGTH
-  ) {
-    return [
-      `segmented controls must preserve cell padding: use at most ${SEGMENTED_CONTROL_MAX_OPTIONS} short options`,
-      `(max ${SEGMENTED_CONTROL_MAX_OPTION_LABEL_LENGTH} characters per label and ${SEGMENTED_CONTROL_MAX_TOTAL_LABEL_LENGTH} total)`,
-      "or shorten labels first; if the compact names still exceed the budget, use a select dropdown instead.",
-    ].join(" ");
-  }
-
-  return null;
 }

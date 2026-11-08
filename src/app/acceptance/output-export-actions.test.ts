@@ -1,76 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { defineToolcraft } from "@/toolcraft/runtime";
+import {
+  defineToolcraft,
+  imageExportModule,
+  svgExportModule,
+  videoExportModule,
+} from "@/toolcraft/runtime";
 
 import {
   schemaHasPngExportPanelAction,
+  schemaHasSvgExportPanelAction,
   schemaHasVideoExportPanelAction,
 } from "./output-export-actions";
 
 function createOutputSchema() {
   return defineToolcraft({
-    canvas: { enabled: true },
-    panels: {
-      controls: {
-        sections: [
-          {
-            controls: {
-              output: {
-                actions: [
-                  {
-                    label: "Guardar imagen",
-                    role: "export-image",
-                    value: "salida.imagen",
-                  },
-                  {
-                    label: "Guardar movimiento",
-                    role: "export-video",
-                    value: "salida.movimiento",
-                  },
-                ],
-                target: "salida.acciones",
-                type: "panelActions",
-              },
-            },
-            title: "Salida",
-          },
-        ],
-        title: "Controles",
-      },
+    base: {
+      identity: { id: "contract-fixture", title: "Contract fixture" },
+      canvas: { enabled: true },
+      panels: { controls: { sections: [], title: "Controles" } },
     },
+    modules: [imageExportModule(), svgExportModule(), videoExportModule()],
   });
 }
 
 describe("Toolcraft typed output action roles", () => {
-  it("detects image and video export without parsing labels or values", () => {
+  it("detects image, SVG, and video export without parsing labels or values", () => {
     const schema = createOutputSchema();
 
     expect(schemaHasPngExportPanelAction(schema)).toBe(true);
+    expect(schemaHasSvgExportPanelAction(schema)).toBe(true);
     expect(schemaHasVideoExportPanelAction(schema)).toBe(true);
   });
 
   it("does not treat export-like prose as semantic output evidence", () => {
     const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                output: {
-                  actions: [{ label: "Export PNG", value: "export.png" }],
-                  target: "actions.output",
-                  type: "panelActions",
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-2",
+                controls: {
+                  output: {
+                    applicability: { mode: "always" as const },
+                    actions: [{ label: "Export PNG", value: "export.png" }],
+                    target: "local.actions",
+                    type: "panelActions",
+                  },
                 },
+                title: "Output",
               },
-              title: "Output",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
       },
+      modules: [],
     });
 
     expect(schemaHasPngExportPanelAction(schema)).toBe(false);
+    expect(schemaHasSvgExportPanelAction(schema)).toBe(false);
     expect(schemaHasVideoExportPanelAction(schema)).toBe(false);
   });
 });

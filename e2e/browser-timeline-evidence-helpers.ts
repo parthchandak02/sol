@@ -138,6 +138,10 @@ export async function expectToolcraftTimelineRenderedFrame<T>(
     evidenceType: "timeline-rendered-frame",
     requirementId: options.requirementId,
   });
+  await attachToolcraftBrowserRuntimeEvidence({
+    evidenceType: "product-observable-change",
+    requirementId: options.requirementId,
+  });
   return after;
 }
 

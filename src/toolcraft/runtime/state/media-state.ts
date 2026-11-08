@@ -4,6 +4,8 @@ import {
   createToolcraftDefaultMediaState,
 } from "./media-defaults";
 import { getMediaReadyTimelineState } from "./timeline-readiness";
+import { createToolcraftState } from "./create-template-state";
+import { areToolcraftControlValuesEqual } from "./control-value-codecs";
 import type {
   ToolcraftHistoryPatch,
   ToolcraftState,
@@ -32,7 +34,7 @@ export function getToolcraftResetMediaPatch(
   state: ToolcraftState,
   targets?: ReadonlySet<string>,
 ): Pick<ToolcraftHistoryPatch, "after" | "before"> | null {
-  if (state.schema.panels.layers) {
+  if (state.schema.panels.layers && !targets) {
     return null;
   }
 
@@ -42,7 +44,11 @@ export function getToolcraftResetMediaPatch(
     return null;
   }
 
-  const defaultMediaState = createToolcraftDefaultMediaState(state.schema);
+  const hasWorkspaceDefaults = state.schema.sourceDefaults !== undefined && state.schema.sourceDefaults.scope !== "parameters";
+  const defaultMediaState = hasWorkspaceDefaults ? createToolcraftState(state.schema) : createToolcraftDefaultMediaState(
+    state.schema,
+    state.canvas,
+  );
   const defaultTargetMediaAssets = defaultMediaState.mediaAssets.filter((asset) =>
     asset.sourceTarget ? fileDropTargets.has(asset.sourceTarget) : false,
   );
@@ -58,7 +64,7 @@ export function getToolcraftResetMediaPatch(
         return !fileDropTargets.has(asset.sourceTarget);
       }
 
-      return false;
+      return hasWorkspaceDefaults;
     }),
     ...cloneToolcraftMediaAssets(defaultTargetMediaAssets),
   ];
@@ -76,6 +82,7 @@ export function getToolcraftResetMediaPatch(
       : (layers[0]?.id ?? null);
 
   if (
+    (!hasWorkspaceDefaults || (areToolcraftControlValuesEqual(mediaAssets, state.mediaAssets) && areToolcraftControlValuesEqual(layers, state.layers))) &&
     mediaAssets.length === state.mediaAssets.length &&
     mediaAssets.every((asset, index) => asset.id === state.mediaAssets[index]?.id) &&
     layers.length === state.layers.length &&

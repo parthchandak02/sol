@@ -1,15 +1,15 @@
+import { readBrowserCssCustomProperty } from "../../primitives/browser-transport";
+
 function resolveCssVariableColor(color: string): string {
   const variableMatch = /^var\(\s*(--[\w-]+)\s*(?:,\s*(.+))?\)$/i.exec(
     color.trim(),
   );
 
-  if (!variableMatch?.[1] || typeof window === "undefined") {
+  if (!variableMatch?.[1]) {
     return color;
   }
 
-  const resolvedValue = window
-    .getComputedStyle(document.documentElement)
-    .getPropertyValue(variableMatch[1]);
+  const resolvedValue = readBrowserCssCustomProperty(variableMatch[1]);
   const fallbackValue = variableMatch[2]?.trim();
   const nextColor = resolvedValue.trim() || fallbackValue;
 

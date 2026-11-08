@@ -22,7 +22,7 @@ export type ToolcraftThemeContextValue = {
 
 const colorSchemeMediaQuery = "(prefers-color-scheme: dark)";
 
-const ToolcraftThemeContext = React.createContext<ToolcraftThemeContextValue | null>(null);
+export const ToolcraftThemeContext = React.createContext<ToolcraftThemeContextValue | null>(null);
 
 function isToolcraftThemePreference(
   value: unknown,
@@ -70,20 +70,18 @@ function writeStoredThemePreference(themePreference: ToolcraftThemePreference): 
   }
 }
 
-function getInitialThemePreference(): ToolcraftThemePreference {
-  return readStoredThemePreference() ?? TOOLCRAFT_DEFAULT_THEME_PREFERENCE;
-}
-
 export function ToolcraftThemeProvider({
   children,
+  defaultPreference = TOOLCRAFT_DEFAULT_THEME_PREFERENCE,
 }: {
   children: React.ReactNode;
+  defaultPreference?: ToolcraftThemePreference;
 }): React.JSX.Element {
   const [initialized, setInitialized] = React.useState(false);
   const [themePreference, setThemePreferenceState] =
-    React.useState<ToolcraftThemePreference>(getInitialThemePreference);
+    React.useState<ToolcraftThemePreference>(() => readStoredThemePreference() ?? defaultPreference);
   const [resolvedTheme, setResolvedTheme] = React.useState<ToolcraftResolvedTheme>(() =>
-    resolveThemePreference(getInitialThemePreference()),
+    resolveThemePreference(readStoredThemePreference() ?? defaultPreference),
   );
 
   const setThemePreference = React.useCallback(
@@ -140,15 +138,26 @@ export function ToolcraftThemeProvider({
     [initialized, resolvedTheme, setThemePreference, themePreference, toggleResolvedTheme],
   );
 
+  return <ToolcraftThemeScope value={value}>{children}</ToolcraftThemeScope>;
+}
+
+/** Share theme state while retaining a local portal container and input boundary. */
+export function ToolcraftThemeScope({
+  children,
+  value,
+}: {
+  children: React.ReactNode;
+  value: ToolcraftThemeContextValue;
+}): React.JSX.Element {
   const portalRootRef = React.useRef<HTMLDivElement | null>(null);
 
   return (
     <ToolcraftThemeContext.Provider value={value}>
       <div
-        data-toolcraft-theme={resolvedTheme}
+        data-toolcraft-theme={value.resolvedTheme}
         data-toolcraft-theme-scope=""
         style={{
-          colorScheme: resolvedTheme,
+          colorScheme: value.resolvedTheme,
           display: "contents",
         }}
       >
@@ -156,7 +165,6 @@ export function ToolcraftThemeProvider({
           <TooltipProvider>{children}</TooltipProvider>
         </PortalLayerContainerProvider>
         <div
-          aria-hidden="true"
           data-toolcraft-portal-root=""
           ref={portalRootRef}
           style={{ display: "contents" }}

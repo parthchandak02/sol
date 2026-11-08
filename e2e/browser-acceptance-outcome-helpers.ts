@@ -17,7 +17,9 @@ import { expectToolcraftPersistentOutcomeAfterAction } from "./stable-outcome-he
 
 export async function expectToolcraftAcceptanceOutcome<T>(
   observeOutcome: () => Promise<T>,
-  action: () => Promise<void>,
+  action:
+    | (() => Promise<void>)
+    | ToolcraftBrowserAction<"interaction">,
   {
     evidenceType,
     requirementId,
@@ -37,9 +39,15 @@ export async function expectToolcraftAcceptanceOutcome<T>(
       `Generic acceptance outcomes cannot emit specialized evidence "${String(evidenceType)}". Use the protected semantic recipe for that behavior.`,
     );
   }
+  const browserAction = isToolcraftBrowserAction(action) ? action : undefined;
+  const target = browserAction
+    ? getToolcraftBrowserActionTarget(browserAction)
+    : undefined;
   const result = await expectToolcraftPersistentOutcomeAfterAction(
     observeOutcome,
-    action,
+    typeof action === "function"
+      ? action
+      : () => runToolcraftBrowserValueAction(action),
     {
       message: `Acceptance outcome "${requirementId}" should change after the tested action.`,
       stabilityIntervalMs,
@@ -47,22 +55,30 @@ export async function expectToolcraftAcceptanceOutcome<T>(
       timeoutMs,
     },
   );
-  await attachToolcraftBrowserRuntimeEvidence({ evidenceType, requirementId });
+  await attachToolcraftBrowserRuntimeEvidence({
+    evidenceType,
+    requirementId,
+    target,
+  });
   return result;
 }
 
 export async function expectToolcraftReferenceParity<T>(
   observeActual: () => Promise<T>,
   expected: T,
-  { requirementId }: { requirementId: string },
+  {
+    requirementId,
+    target,
+  }: { requirementId: string; target?: string },
 ): Promise<T> {
   const actual = await observeActual();
-  expect(actual, `Reference outcome "${requirementId}" should match the inspected baseline.`).toEqual(
+  expect<unknown>(actual, `Reference outcome "${requirementId}" should match the inspected baseline.`).toEqual(
     expected,
   );
   await attachToolcraftBrowserRuntimeEvidence({
     evidenceType: "reference-parity",
     requirementId,
+    target,
   });
   return actual;
 }
@@ -82,9 +98,9 @@ export async function expectToolcraftExportedArtifact<
   const target = isToolcraftBrowserAction(produceArtifact)
     ? getToolcraftBrowserActionTarget(produceArtifact)
     : undefined;
-  const artifact = isToolcraftBrowserAction(produceArtifact)
-    ? await runToolcraftBrowserValueAction(produceArtifact)
-    : await produceArtifact();
+  const artifact = typeof produceArtifact === "function"
+    ? await produceArtifact()
+    : await runToolcraftBrowserValueAction(produceArtifact);
   assertToolcraftProducedArtifact(artifact, requirementId);
   const observation = await verifyArtifact(artifact);
   validateToolcraftExportArtifactInspection(observation, requirementId);

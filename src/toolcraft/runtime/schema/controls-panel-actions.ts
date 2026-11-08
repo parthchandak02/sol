@@ -1,16 +1,53 @@
-import { createNormalizedControlsRecord } from "./control-schema-normalization";
 import { filterLayoutGroupsForControlIds } from "./controls-panel-layout-groups";
+import {
+  deriveSplitToolcraftControlSectionId,
+  preserveToolcraftInternalControlSectionRegistration,
+  registerToolcraftInternalControlSection,
+} from "./controls-panel-section-id";
 import type {
+  ResolvedToolcraftControlSchema,
+  ResolvedToolcraftControlSectionSchema,
+  ResolvedToolcraftNonModelControlSchema,
   ToolcraftControlSchema,
-  ToolcraftControlSectionSchema,
 } from "./types";
 
 type ToolcraftControlActionSchema = NonNullable<
   ToolcraftControlSchema["actions"]
 >[number];
 
-function isPanelActionsControl(control: ToolcraftControlSchema): boolean {
+type ToolcraftPanelActionsControl = Extract<ResolvedToolcraftNonModelControlSchema, { type: "panelActions" }>;
+
+type ResolvedControlEntry = [string, ResolvedToolcraftControlSchema];
+type PanelActionsEntry = [string, ToolcraftPanelActionsControl];
+
+function isPanelActionsControl(
+  control: ResolvedToolcraftControlSchema,
+): control is ToolcraftPanelActionsControl {
   return control.type === "panelActions";
+}
+
+function isPanelActionsEntry(
+  entry: ResolvedControlEntry,
+): entry is PanelActionsEntry {
+  return isPanelActionsControl(entry[1]);
+}
+
+function partitionControlEntries(entries: readonly ResolvedControlEntry[]): {
+  actionEntries: PanelActionsEntry[];
+  passthroughEntries: ResolvedControlEntry[];
+} {
+  const actionEntries: PanelActionsEntry[] = [];
+  const passthroughEntries: ResolvedControlEntry[] = [];
+
+  for (const entry of entries) {
+    if (isPanelActionsEntry(entry)) {
+      actionEntries.push(entry);
+    } else {
+      passthroughEntries.push(entry);
+    }
+  }
+
+  return { actionEntries, passthroughEntries };
 }
 
 function isPrimaryPanelAction(action: ToolcraftControlActionSchema): boolean {
@@ -25,23 +62,27 @@ function orderPanelActions(
   }
 
   return [...actions].sort(
-    (left, right) => Number(isPrimaryPanelAction(left)) - Number(isPrimaryPanelAction(right)),
+    (left, right) =>
+      Number(isPrimaryPanelAction(left)) - Number(isPrimaryPanelAction(right)),
   );
 }
 
 function createMergedPanelActionsControl(
-  entries: readonly [string, ToolcraftControlSchema][],
-): ToolcraftControlSchema | null {
+  entries: readonly PanelActionsEntry[],
+): ToolcraftPanelActionsControl | null {
   const firstControl = entries[0]?.[1];
 
   if (!firstControl) {
     return null;
   }
 
-  const actions = entries.flatMap(([, control]) => [...(control.actions ?? [])]);
+  const actions = entries.flatMap(([, control]) => [
+    ...(control.actions ?? []),
+  ]);
 
   return {
     ...firstControl,
+    applicability: { mode: "always", origin: "explicit" },
     actions: orderPanelActions(actions),
     target: firstControl.target || "panel.actions",
     type: "panelActions",
@@ -49,8 +90,8 @@ function createMergedPanelActionsControl(
 }
 
 function getBodySectionTitleAfterActionSplit(
-  title: ToolcraftControlSectionSchema["title"],
-): ToolcraftControlSectionSchema["title"] {
+  title: ResolvedToolcraftControlSectionSchema["title"],
+): ResolvedToolcraftControlSectionSchema["title"] {
   if (!title) {
     return title;
   }
@@ -61,64 +102,99 @@ function getBodySectionTitleAfterActionSplit(
 function isActionOrExportSectionTitle(title: string): boolean {
   const normalizedTitle = title.trim().toLowerCase();
 
-  return normalizedTitle === "action" ||
+  return (
+    normalizedTitle === "action" ||
     normalizedTitle === "actions" ||
     normalizedTitle === "export" ||
-    normalizedTitle === "exports";
+    normalizedTitle === "exports"
+  );
+}
+
+function getSectionIdAfterActionSplit(
+  section: ResolvedToolcraftControlSectionSchema,
+  entries: readonly ResolvedControlEntry[],
+  removedActionCount: number,
+): string {
+  return removedActionCount > 0
+    ? deriveSplitToolcraftControlSectionId(section.id, entries)
+    : section.id;
 }
 
 export function splitControlsPanelActionSections(
-  sections: readonly ToolcraftControlSectionSchema[],
+  sections: readonly ResolvedToolcraftControlSectionSchema[],
 ): {
-  bodySections: ToolcraftControlSectionSchema[];
-  stickyFooterSections: ToolcraftControlSectionSchema[];
+  bodySections: ResolvedToolcraftControlSectionSchema[];
+  stickyFooterSections: ResolvedToolcraftControlSectionSchema[];
 } {
-  const bodySections: ToolcraftControlSectionSchema[] = [];
-  const stickyFooterSections: ToolcraftControlSectionSchema[] = [];
-  const stickyFooterActionEntries: [string, ToolcraftControlSchema][] = [];
+  const bodySections: ResolvedToolcraftControlSectionSchema[] = [];
+  const stickyFooterSections: ResolvedToolcraftControlSectionSchema[] = [];
+  const stickyFooterActionEntries: PanelActionsEntry[] = [];
 
   for (const section of sections) {
-    if (section.actionGroup) {
-      const entries = Object.entries(section.controls);
-      const actionEntries = entries.filter(([, control]) => isPanelActionsControl(control));
-      const passthroughEntries = entries.filter(([, control]) => !isPanelActionsControl(control));
+    const entries: ResolvedControlEntry[] = Object.entries(section.controls);
+    // Settings is mandatory even for hosts with no enabled canvas/timeline fields.
+    if (section.id === "runtime.setup" && entries.length === 0) {
+      bodySections.push(section);
+      continue;
+    }
+    const { actionEntries, passthroughEntries } =
+      partitionControlEntries(entries);
 
+    if (section.actionGroup) {
       stickyFooterActionEntries.push(...actionEntries);
 
       if (passthroughEntries.length > 0) {
-        stickyFooterSections.push({
+        const splitSection = {
           ...section,
-          controls: createNormalizedControlsRecord(passthroughEntries),
-        });
+          controls: Object.fromEntries(passthroughEntries),
+          id: getSectionIdAfterActionSplit(
+            section,
+            passthroughEntries,
+            actionEntries.length,
+          ),
+        };
+
+        stickyFooterSections.push(
+          actionEntries.length > 0
+            ? registerToolcraftInternalControlSection(splitSection)
+            : preserveToolcraftInternalControlSectionRegistration(
+                section,
+                splitSection,
+              ),
+        );
       }
 
       continue;
     }
 
-    const bodyEntries: [string, ToolcraftControlSchema][] = [];
-    const actionEntries: [string, ToolcraftControlSchema][] = [];
-
-    for (const entry of Object.entries(section.controls)) {
-      const [, control] = entry;
-
-      if (isPanelActionsControl(control)) {
-        actionEntries.push(entry);
-      } else {
-        bodyEntries.push(entry);
-      }
-    }
-
-    if (bodyEntries.length > 0) {
-      const controlIds = new Set(bodyEntries.map(([id]) => id));
-      const layoutGroups = filterLayoutGroupsForControlIds(section.layoutGroups, controlIds);
+    if (passthroughEntries.length > 0) {
+      const controlIds = new Set(passthroughEntries.map(([id]) => id));
+      const layoutGroups = filterLayoutGroupsForControlIds(
+        section.layoutGroups,
+        controlIds,
+      );
       const title = getBodySectionTitleAfterActionSplit(section.title);
 
-      bodySections.push({
+      const splitSection = {
         ...section,
-        controls: createNormalizedControlsRecord(bodyEntries),
+        controls: Object.fromEntries(passthroughEntries),
+        id: getSectionIdAfterActionSplit(
+          section,
+          passthroughEntries,
+          actionEntries.length,
+        ),
         layoutGroups: layoutGroups.length > 0 ? layoutGroups : undefined,
         title,
-      });
+      };
+
+      bodySections.push(
+        actionEntries.length > 0
+          ? registerToolcraftInternalControlSection(splitSection)
+          : preserveToolcraftInternalControlSectionRegistration(
+              section,
+              splitSection,
+            ),
+      );
     }
 
     if (actionEntries.length > 0) {
@@ -126,15 +202,20 @@ export function splitControlsPanelActionSections(
     }
   }
 
-  const mergedActionsControl = createMergedPanelActionsControl(stickyFooterActionEntries);
+  const mergedActionsControl = createMergedPanelActionsControl(
+    stickyFooterActionEntries,
+  );
 
   if (mergedActionsControl) {
-    stickyFooterSections.unshift({
-      actionGroup: "secondary",
-      controls: { footer: mergedActionsControl },
-      layout: "standalone",
-      title: "Export",
-    });
+    stickyFooterSections.unshift(
+      registerToolcraftInternalControlSection({
+        actionGroup: "secondary",
+        controls: { footer: mergedActionsControl },
+        id: "runtime.export",
+        layout: "standalone",
+        title: "Export",
+      }),
+    );
   }
 
   return { bodySections, stickyFooterSections };

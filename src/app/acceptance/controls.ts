@@ -22,6 +22,10 @@ export function isToolcraftProductSectionControl(control: ToolcraftControlSchema
   );
 }
 
+export function isLegacyToolcraftControlSectionId(id: string): boolean {
+  return id.startsWith("legacy.");
+}
+
 export function isToolcraftVisibleAcceptanceControl(control: ToolcraftControlSchema): boolean {
   return control.type === "panelActions" || isToolcraftProductSectionControl(control);
 }

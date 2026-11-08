@@ -1,115 +1,18 @@
 import { expect } from "@playwright/test";
 
-import type {
-  ToolcraftPerformanceBudget,
-  ToolcraftPerformanceConfig,
-} from "@/toolcraft/runtime";
-
-import { attachToolcraftBrowserRuntimeEvidence } from "./browser-runtime-evidence";
-import {
-  getToolcraftMeasurementProvenance,
-  type ToolcraftInteractionResult,
-} from "./performance-probe-helpers";
+import type { ToolcraftInteractionResult } from "./performance-probe-helpers";
+import type { ToolcraftPerformancePathBudget } from "./performance-profile-helpers";
 
 type ToolcraftPerformanceBudgetResult = Partial<ToolcraftInteractionResult> & {
   durationMs?: number;
   exportMs?: number;
   frameGapMs?: number;
   previewMs?: number;
-  renderMs?: number;
 };
-
-export function getToolcraftPerformanceScenarioBudget(
-  config: ToolcraftPerformanceConfig,
-  scenarioId: string,
-): ToolcraftPerformanceBudget {
-  const scenario = config.scenarios.find((item) => item.id === scenarioId);
-
-  if (!scenario) {
-    throw new Error(`Toolcraft performance scenario "${scenarioId}" was not found.`);
-  }
-
-  return scenario.budget;
-}
-
-export function getToolcraftPerformanceStressValue<TValue = unknown>(
-  config: ToolcraftPerformanceConfig,
-  scenarioId: string,
-): TValue {
-  const scenario = config.scenarios.find((item) => item.id === scenarioId);
-
-  if (!scenario) {
-    throw new Error(`Toolcraft performance scenario "${scenarioId}" was not found.`);
-  }
-
-  if (
-    !scenario.stressFixture ||
-    !Object.prototype.hasOwnProperty.call(scenario.stressFixture, "value")
-  ) {
-    throw new Error(
-      `Toolcraft performance scenario "${scenarioId}" does not declare stressFixture.value.`,
-    );
-  }
-
-  return scenario.stressFixture.value as TValue;
-}
-
-export function getToolcraftPerformanceWorkloadValue<TValue = unknown>(
-  config: ToolcraftPerformanceConfig,
-  scenarioId: string,
-): TValue {
-  const scenario = config.scenarios.find((item) => item.id === scenarioId);
-
-  if (!scenario) {
-    throw new Error(`Toolcraft performance scenario "${scenarioId}" was not found.`);
-  }
-
-  if (
-    !scenario.workloadFixture ||
-    !Object.prototype.hasOwnProperty.call(scenario.workloadFixture, "value")
-  ) {
-    throw new Error(
-      `Toolcraft performance scenario "${scenarioId}" does not declare workloadFixture.value.`,
-    );
-  }
-
-  return scenario.workloadFixture.value as TValue;
-}
-
-export async function expectToolcraftScenarioPerformanceBudget(
-  result: ToolcraftPerformanceBudgetResult,
-  config: ToolcraftPerformanceConfig,
-  scenarioId: string,
-): Promise<void> {
-  const scenario = config.scenarios.find((item) => item.id === scenarioId);
-  if (!scenario) {
-    throw new Error(`Toolcraft performance scenario "${scenarioId}" was not found.`);
-  }
-  const provenance = getToolcraftMeasurementProvenance(
-    result,
-  );
-  if (
-    provenance?.scenarioId !== scenarioId ||
-    provenance.target !== scenario.target
-  ) {
-    throw new Error(
-      `Toolcraft performance budget "${scenarioId}" requires a result created by a protected measurement helper for the same scenario and schema target.`,
-    );
-  }
-  expectToolcraftPerformanceBudget(
-    result,
-    getToolcraftPerformanceScenarioBudget(config, scenarioId),
-  );
-  await attachToolcraftBrowserRuntimeEvidence({
-    evidenceType: "performance-budget",
-    requirementId: scenarioId,
-    target: scenario.target,
-  });
-}
 
 export function expectToolcraftPerformanceBudget(
   result: ToolcraftPerformanceBudgetResult,
-  budget: ToolcraftPerformanceBudget,
+  budget: ToolcraftPerformancePathBudget,
 ): void {
   if (typeof budget.maxInteractionMs === "number") {
     expect(
@@ -148,12 +51,5 @@ export function expectToolcraftPerformanceBudget(
       result.previewMs ?? result.durationMs,
       `Expected preview duration to stay within ${budget.maxPreviewMs}ms.`,
     ).toBeLessThanOrEqual(budget.maxPreviewMs);
-  }
-
-  if (typeof budget.maxRenderMs === "number") {
-    expect(
-      result.renderMs ?? result.durationMs,
-      `Expected render duration to stay within ${budget.maxRenderMs}ms.`,
-    ).toBeLessThanOrEqual(budget.maxRenderMs);
   }
 }

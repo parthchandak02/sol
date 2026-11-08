@@ -8,30 +8,17 @@ import {
   getToolcraftControlLayoutSectionInvariantErrors,
 } from "./control-layout-section-rules";
 import type { ToolcraftControlSectionInventoryEntry } from "./types";
-
-export function getToolcraftControlSectionGroupingErrors(
-  schema: ResolvedToolcraftAppSchema,
-  sectionInventory: readonly ToolcraftControlSectionInventoryEntry[] = [],
-): string[] {
-  const facts = buildToolcraftControlLayoutFacts(schema);
-
-  return [
-    ...getToolcraftControlLayoutSectionInvariantErrors(facts),
-    ...getToolcraftControlLayoutSectionHeuristicErrors(facts),
-    ...getToolcraftControlDependencyGroupingErrors(facts),
-    ...getToolcraftControlEntityGroupingErrors({ facts, sectionInventory }),
-  ];
-}
+import { getToolcraftProductModeTargets } from "./product-mode-intent";
 
 export function getToolcraftControlSectionInvariantErrors(
   schema: ResolvedToolcraftAppSchema,
   sectionInventory: readonly ToolcraftControlSectionInventoryEntry[] = [],
 ): string[] {
-  const facts = buildToolcraftControlLayoutFacts(schema);
+  const facts = buildToolcraftControlLayoutFacts(schema, getToolcraftProductModeTargets(sectionInventory));
 
   return [
     ...getToolcraftControlLayoutSectionInvariantErrors(facts),
-    ...getToolcraftControlDependencyGroupingErrors(facts),
+    ...getToolcraftControlDependencyGroupingErrors(facts, sectionInventory),
     ...getToolcraftControlEntityGroupingErrors({ facts, sectionInventory }),
   ];
 }

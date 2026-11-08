@@ -26,7 +26,6 @@ type ColorSurfaceProps = {
   surfacePosition: ColorSurfacePosition | null;
   isSurfaceDragging: boolean;
   onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
-  onThumbPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
 };
 
 function getRgbCss([red, green, blue]: [number, number, number]): string {
@@ -134,7 +133,6 @@ export function ColorSurface({
   surfacePosition,
   isSurfaceDragging,
   onPointerDown,
-  onThumbPointerDown,
 }: ColorSurfaceProps) {
   const thumbPosition = getColorSurfaceThumbPosition({
     colorModel,
@@ -187,7 +185,6 @@ export function ColorSurface({
           left: thumbPosition.left,
           top: thumbPosition.top,
         }}
-        onPointerDown={onThumbPointerDown}
       />
     </div>
   );

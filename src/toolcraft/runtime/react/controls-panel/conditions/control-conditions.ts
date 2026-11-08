@@ -1,68 +1,23 @@
+import type { ReadonlyToolcraftState, ToolcraftReadonly } from "../../../state/readonly-state";
 import {
   getToolcraftCanvasSizeTargetDimension,
   isToolcraftTimelinePanelExtendedTarget,
   isToolcraftTimelinePanelVisibleTarget,
 } from "../../../schema/runtime-targets";
+import {
+  doesToolcraftApplicabilityMatch,
+  doesToolcraftPredicateMatchValue,
+  getToolcraftApplicabilityTargets,
+} from "../../../schema/control-applicability";
 import type {
   ToolcraftControlConditionSchema,
-  ToolcraftControlSchema,
-  ToolcraftControlSectionSchema,
+  ResolvedToolcraftControlSchema,
+  ResolvedToolcraftControlSectionSchema,
 } from "../../../schema/types";
-import type { ToolcraftState } from "../../../state/types";
-
-function valuesEqual(first: unknown, second: unknown): boolean {
-  if (Object.is(first, second)) {
-    return true;
-  }
-
-  if (
-    (typeof first !== "object" || first === null) &&
-    (typeof second !== "object" || second === null)
-  ) {
-    return false;
-  }
-
-  try {
-    return JSON.stringify(first) === JSON.stringify(second);
-  } catch {
-    return false;
-  }
-}
-
-function valuesInclude(value: unknown, options: readonly unknown[]): boolean {
-  return options.some((option) => valuesEqual(value, option));
-}
-
-function readComparableNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === "string") {
-    const numberValue = Number(value.trim());
-
-    return Number.isFinite(numberValue) ? numberValue : null;
-  }
-
-  return null;
-}
-
-function compareConditionNumbers(
-  value: unknown,
-  expected: number | undefined,
-  comparator: (value: number, expected: number) => boolean,
-): boolean | null {
-  if (typeof expected !== "number" || !Number.isFinite(expected)) {
-    return null;
-  }
-
-  const numberValue = readComparableNumber(value);
-
-  return numberValue === null ? false : comparator(numberValue, expected);
-}
+import { readToolcraftCanvasRuntimeTarget } from "../../../state/canvas-frame";
 
 function getControlDefaultValueByTarget(
-  sections: readonly ToolcraftControlSectionSchema[],
+  sections: ToolcraftReadonly<readonly ResolvedToolcraftControlSectionSchema[]>,
   target: string,
 ): unknown {
   for (const section of sections) {
@@ -77,9 +32,15 @@ function getControlDefaultValueByTarget(
 }
 
 export function getToolcraftTargetValue(
-  state: ToolcraftState,
+  state: ReadonlyToolcraftState,
   target: string,
 ): unknown {
+  const canvasTarget = readToolcraftCanvasRuntimeTarget(state, target);
+
+  if (canvasTarget.handled) {
+    return canvasTarget.value;
+  }
+
   const canvasSizeDimension = getToolcraftCanvasSizeTargetDimension(target);
 
   if (isToolcraftTimelinePanelExtendedTarget(target)) {
@@ -99,67 +60,58 @@ export function getToolcraftTargetValue(
         ));
 }
 
+export function getToolcraftConditionTargets(
+  ...conditions: ReadonlyArray<ToolcraftControlConditionSchema | undefined>
+): string[] {
+  return [
+    ...new Set(
+      conditions.flatMap((condition) =>
+        condition ? [condition.target] : [],
+      ),
+    ),
+  ];
+}
+
+export function getToolcraftControlConditionTargets(
+  control: ResolvedToolcraftControlSchema,
+): string[] {
+  return [
+    ...new Set([
+      ...getToolcraftApplicabilityTargets(
+        control.applicability,
+      ),
+      ...getToolcraftConditionTargets(control.disabledWhen),
+    ]),
+  ];
+}
+
+export function getToolcraftControlVisibilityTargets(
+  control: ToolcraftReadonly<ResolvedToolcraftControlSchema>,
+): string[] {
+  return getToolcraftApplicabilityTargets(
+    control.applicability,
+  );
+}
+
+export function getToolcraftSectionVisibilityTargets(
+  section: ToolcraftReadonly<ResolvedToolcraftControlSectionSchema>,
+): string[] {
+  return getToolcraftConditionTargets(section.visibleWhen);
+}
+
 export function toolcraftConditionMatches(
-  state: ToolcraftState,
+  state: ReadonlyToolcraftState,
   condition: ToolcraftControlConditionSchema,
 ): boolean {
-  const value = getToolcraftTargetValue(state, condition.target);
-  const matches: boolean[] = [];
-
-  if ("equals" in condition) {
-    matches.push(valuesEqual(value, condition.equals));
-  }
-
-  if ("notEquals" in condition) {
-    matches.push(!valuesEqual(value, condition.notEquals));
-  }
-
-  if (Array.isArray(condition.oneOf)) {
-    matches.push(valuesInclude(value, condition.oneOf));
-  }
-
-  if (Array.isArray(condition.notOneOf)) {
-    matches.push(!valuesInclude(value, condition.notOneOf));
-  }
-
-  const greaterThan = compareConditionNumbers(
-    value,
-    condition.greaterThan,
-    (numberValue, expected) => numberValue > expected,
+  return doesToolcraftPredicateMatchValue(
+    condition,
+    getToolcraftTargetValue(state, condition.target),
   );
-  const greaterThanOrEqual = compareConditionNumbers(
-    value,
-    condition.greaterThanOrEqual,
-    (numberValue, expected) => numberValue >= expected,
-  );
-  const lessThan = compareConditionNumbers(
-    value,
-    condition.lessThan,
-    (numberValue, expected) => numberValue < expected,
-  );
-  const lessThanOrEqual = compareConditionNumbers(
-    value,
-    condition.lessThanOrEqual,
-    (numberValue, expected) => numberValue <= expected,
-  );
-
-  for (const match of [
-    greaterThan,
-    greaterThanOrEqual,
-    lessThan,
-    lessThanOrEqual,
-  ]) {
-    if (match !== null) {
-      matches.push(match);
-    }
-  }
-
-  return matches.length > 0 && matches.every(Boolean);
 }
 
 export function isToolcraftSectionVisible(
-  state: ToolcraftState,
-  section: ToolcraftControlSectionSchema,
+  state: ReadonlyToolcraftState,
+  section: ToolcraftReadonly<ResolvedToolcraftControlSectionSchema>,
 ): boolean {
   return section.visibleWhen
     ? toolcraftConditionMatches(state, section.visibleWhen)
@@ -167,17 +119,18 @@ export function isToolcraftSectionVisible(
 }
 
 export function isToolcraftControlVisible(
-  state: ToolcraftState,
-  control: ToolcraftControlSchema,
+  state: ReadonlyToolcraftState,
+  control: ToolcraftReadonly<ResolvedToolcraftControlSchema>,
 ): boolean {
-  return control.visibleWhen
-    ? toolcraftConditionMatches(state, control.visibleWhen)
-    : true;
+  return doesToolcraftApplicabilityMatch(
+    control.applicability,
+    (target) => getToolcraftTargetValue(state, target),
+  );
 }
 
 export function isToolcraftControlDisabled(
-  state: ToolcraftState,
-  control: ToolcraftControlSchema,
+  state: ReadonlyToolcraftState,
+  control: ResolvedToolcraftControlSchema,
 ): boolean {
   if (control.disabled) {
     return true;

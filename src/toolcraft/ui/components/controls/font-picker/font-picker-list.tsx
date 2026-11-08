@@ -70,6 +70,7 @@ export function FontPickerList({
   return (
     <div
       className="relative isolate pb-1"
+      data-slot="font-picker-hover-preview-region"
       onMouseLeave={clearHoverPreview}
     >
       <div className="px-1 pt-1">
@@ -107,6 +108,7 @@ export function FontPickerList({
 
                   return (
                     <button
+                      data-slot="font-picker-option"
                       className={cn(
                         "flex min-h-9 w-full items-center justify-between gap-3 rounded-sm px-2.5 text-left text-sm font-normal text-[color:color-mix(in_oklab,var(--foreground)_85%,transparent)] outline-none",
                         menuItemInteractionClassName,

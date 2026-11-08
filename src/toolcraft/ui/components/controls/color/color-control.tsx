@@ -34,7 +34,7 @@ function isColorControlGroupProps(
 }
 
 function ColorControlField({
-  fullWidth = false,
+  fullWidth = true,
   hex,
   name,
   onValueChange,
@@ -56,9 +56,12 @@ function ColorControlField({
   }
 
   return (
-    <Field className="h-fit min-w-0 justify-start gap-2">
+    <Field className={cn(
+      "h-fit min-w-0 justify-start gap-2",
+      !fullWidth && "w-[calc((100%-10px)/2)]",
+    )}>
       {showLabel ? <ControlFieldLabel>{name}</ControlFieldLabel> : null}
-      <div className={cn("min-w-0", fullWidth ? "w-full" : "w-1/2 shrink-0")}>
+      <div className="min-w-0 w-full">
         <ColorValueControl
           color={activeColor}
           label={name}

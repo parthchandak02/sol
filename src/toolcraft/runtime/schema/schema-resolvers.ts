@@ -3,14 +3,16 @@ import {
   toolcraftTimelineDefaultDurationSeconds,
 } from "../state/timeline-values";
 import type {
-  ResolvedToolcraftAppSchema,
   ResolvedToolcraftTimelinePanelSchema,
-  ToolcraftAppSchema,
+  ToolcraftCanvasSchema,
   ToolcraftCanvasSize,
   ToolcraftCanvasSizingSchema,
+  ToolcraftExportSchema,
+  ToolcraftMediaSchema,
   ToolcraftTimelinePanelSchema,
   ToolcraftToolbarSchema,
 } from "./types";
+import type { ResolvedToolcraftAppSchema } from "./resolved-app-schema";
 
 export const defaultToolcraftCanvasSize = {
   height: 1080,
@@ -18,34 +20,8 @@ export const defaultToolcraftCanvasSize = {
   width: 1920,
 } satisfies ToolcraftCanvasSize;
 
-const defaultCanvasRenderScale = {
-  defaultValue: 2,
-  enabled: false,
-  max: 2,
-  min: 1,
-  step: 0.25,
-} satisfies ResolvedToolcraftAppSchema["canvas"]["renderScale"];
-
-function assertNever(value: never): never {
-  throw new Error(`Unsupported Toolcraft template persistence storage: ${String(value)}`);
-}
-
-export function resolveToolcraftPersistence(
-  persistence: ToolcraftAppSchema["persistence"],
-): ResolvedToolcraftAppSchema["persistence"] {
-  switch (persistence?.storage) {
-    case undefined:
-    case "none":
-      return { storage: "none" };
-    case "localStorage":
-      return persistence;
-    default:
-      return assertNever(persistence);
-  }
-}
-
 export function resolveToolcraftCanvasSizing(
-  canvas: ToolcraftAppSchema["canvas"],
+  canvas: ToolcraftCanvasSchema,
 ): ToolcraftCanvasSizingSchema {
   if (canvas.sizing) {
     return canvas.sizing;
@@ -62,56 +38,8 @@ export function resolveToolcraftCanvasSizing(
   return { mode: "intrinsic-media" };
 }
 
-function clampCanvasRenderScale(value: number | undefined, fallback: number): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return fallback;
-  }
-
-  return Math.max(1, Math.min(2, value));
-}
-
-export function resolveToolcraftCanvasRenderScale(
-  renderScale: ToolcraftAppSchema["canvas"]["renderScale"],
-): ResolvedToolcraftAppSchema["canvas"]["renderScale"] {
-  if (renderScale === true) {
-    return {
-      ...defaultCanvasRenderScale,
-      enabled: true,
-    };
-  }
-
-  if (!renderScale) {
-    return defaultCanvasRenderScale;
-  }
-
-  const min = clampCanvasRenderScale(renderScale.min, defaultCanvasRenderScale.min);
-  const max = Math.max(
-    min,
-    clampCanvasRenderScale(renderScale.max, defaultCanvasRenderScale.max),
-  );
-  const step =
-    typeof renderScale.step === "number" && Number.isFinite(renderScale.step)
-      ? Math.max(0.01, Math.min(1, renderScale.step))
-      : defaultCanvasRenderScale.step;
-  const defaultValue = Math.max(
-    min,
-    Math.min(
-      max,
-      clampCanvasRenderScale(renderScale.defaultValue, defaultCanvasRenderScale.defaultValue),
-    ),
-  );
-
-  return {
-    defaultValue,
-    enabled: renderScale.enabled ?? true,
-    max,
-    min,
-    step,
-  };
-}
-
 export function resolveToolcraftExport(
-  exportSchema: ToolcraftAppSchema["export"],
+  exportSchema: ToolcraftExportSchema | undefined,
 ): ResolvedToolcraftAppSchema["export"] {
   return {
     png: {
@@ -121,7 +49,7 @@ export function resolveToolcraftExport(
 }
 
 export function resolveToolcraftMedia(
-  mediaSchema: ToolcraftAppSchema["media"],
+  mediaSchema: ToolcraftMediaSchema | undefined,
 ): ResolvedToolcraftAppSchema["media"] {
   return {
     defaultAssets: mediaSchema?.defaultAssets ?? [],
@@ -157,7 +85,7 @@ export function resolveToolcraftToolbar({
   toolbar,
 }: {
   canvasEnabled: boolean;
-  toolbar: ToolcraftAppSchema["toolbar"];
+  toolbar: ToolcraftToolbarSchema | undefined;
 }): Required<ToolcraftToolbarSchema> {
   return {
     history: toolbar?.history ?? canvasEnabled,

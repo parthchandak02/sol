@@ -57,6 +57,67 @@ test("frame probes record a main-thread gap before any navigation", async ({ pag
   expect(result.maxFrameGapMs).toBeGreaterThanOrEqual(60);
 });
 
+test("frame probes exclude gaps while the document is hidden", async ({ page }) => {
+  await page.setContent("<div>hidden frame gap</div>");
+  await page.evaluate(() => {
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let sequence = 0;
+    const win = window as Window & {
+      __toolcraftRunNextFrame?: (now: number) => void;
+    };
+    window.requestAnimationFrame = (callback) => {
+      sequence += 1;
+      callbacks.set(sequence, callback);
+      return sequence;
+    };
+    window.cancelAnimationFrame = (id) => {
+      callbacks.delete(id);
+    };
+    win.__toolcraftRunNextFrame = (now) => {
+      const next = callbacks.entries().next().value as
+        | [number, FrameRequestCallback]
+        | undefined;
+      if (!next) throw new Error("Expected a queued animation frame.");
+      callbacks.delete(next[0]);
+      next[1](now);
+    };
+  });
+  const stopProbe = await startToolcraftFrameProbe(page);
+
+  await page.evaluate(() => {
+    const win = window as Window & {
+      __toolcraftRunNextFrame?: (now: number) => void;
+    };
+    const runNextFrame = win.__toolcraftRunNextFrame;
+    if (!runNextFrame) throw new Error("Controlled frame clock is missing.");
+    const startedAt = performance.now();
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    runNextFrame(startedAt);
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    runNextFrame(startedAt + 16);
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    runNextFrame(startedAt + 116);
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    runNextFrame(startedAt + 132);
+  });
+
+  const result = await stopProbe();
+  expect(result.frameGapsMs).toHaveLength(2);
+  expect(result.frameGapsMs).toEqual([16, 16]);
+});
+
 test("interaction duration includes latency until the first product outcome", async ({
   page,
 }) => {

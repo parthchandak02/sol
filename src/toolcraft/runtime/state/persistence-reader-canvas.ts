@@ -11,6 +11,10 @@ export function readCanvas(value: unknown): Partial<ToolcraftCanvasState> | unde
   const offset = readPoint(value.offset);
   const size = readCanvasSize(value.size);
 
+  if (value.mode === "finite" || value.mode === "infinite") {
+    canvas.mode = value.mode;
+  }
+
   if (offset) {
     canvas.offset = offset;
   }

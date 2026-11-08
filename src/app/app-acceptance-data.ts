@@ -4,179 +4,140 @@ import type {
   ToolcraftProductReadiness,
   ToolcraftTransferMode,
 } from "./acceptance/types";
+import { appSchema } from "./app-schema";
+import { solReadiness, solSectionInventory } from "../sol/sol-inventory";
+import { CITY_PRESETS, NOW_ACTION, SEASON_PRESETS, SOL_TARGETS } from "../sol/sol-settings";
 
 export const appTransferMode: ToolcraftTransferMode = {
   animationIntent: { mode: "none" },
   mode: "new-toolcraft-app",
+  referenceInputs: [],
 };
 
-export const appProductReadiness: ToolcraftProductReadiness = {
-  mode: "product",
-  productName: "Sol",
-  productSummary:
-    "A pastel Canvas 2D sky with one arc showing the sun's daily path for a chosen latitude, longitude, and day of the year, with sunrise, solar noon, sunset, and civil twilight from the Sunrise-Sunset API and the day length as a large number.",
-  requestedBehavior:
-    "Latitude and day-of-year sliders reshape the arc (height from solar noon altitude, lit share from day length); longitude and city presets change the place and its clock times; the sun sits where it is right now on that day's arc; the sky colour can be changed or left out; the piece exports as PNG or JPG at 2K, 4K, or 8K.",
-};
+export const appProductReadiness: ToolcraftProductReadiness = solReadiness;
 
-export const appControlSectionInventory: readonly ToolcraftControlSectionInventoryEntry[] = [
-  {
-    entity: "Place on Earth",
-    groupingReason:
-      "Latitude, longitude, and the city shortcuts all choose where the sun is observed from; the cities only set those two sliders.",
-    targets: ["location.latitude", "location.longitude", "location.cityPreset"],
-    title: "Location",
-  },
-  {
-    entity: "Day of the year",
-    groupingReason: "The date is a separate input from place: it moves the sun's declination and so the season.",
-    targets: ["date.dayOfYear"],
-    title: "Date",
-  },
-  {
-    entity: "Sky background",
-    groupingReason: "Whether the sky is drawn and which colour it uses belong to the same background fill.",
-    targets: ["export.includeBackground", "sky.background"],
-    title: "Background",
-  },
-  {
-    groupingReason: "Format and resolution only affect the exported image file.",
-    targets: ["export.image.format", "export.image.resolution"],
-    title: "Image Export",
-    workflowStage: "Export",
-  },
-];
+export const appControlSectionInventory: readonly ToolcraftControlSectionInventoryEntry[] = solSectionInventory;
+
+type Budget = "extended-io" | "standard";
+const browser = (testName: string, file: `e2e/${string}.spec.ts`, budget: Budget = "standard") => ({ budget, file, testName });
+
+const domainFile = (id: string) => `e2e/product-sol-${id.split(".")[0]}.spec.ts` as const;
+
+const sliderRow = (id: string, target: string, label: string, observable: string, interactionId: string): ToolcraftComponentAcceptance => ({
+  automated: true,
+  automatedTestName: `sol control ${target}`,
+  browser: browser(`browser: sol control ${target}`, domainFile(id)),
+  componentType: "slider",
+  evidence: "product-output",
+  expectedObservable: observable,
+  fixture: "Default New York, 21 June, 17:00",
+  id,
+  interactionId,
+  kind: "control",
+  target,
+  userAction: `Drag the ${label} slider.`,
+});
+
+const actionRow = (id: string, target: string, values: readonly string[], observable: string, interactionId: string): ToolcraftComponentAcceptance => ({
+  actionCoverage: values,
+  automated: true,
+  automatedTestName: `sol control ${target}`,
+  browser: browser(`browser: sol control ${target}`, domainFile(id)),
+  componentType: "actions",
+  evidence: "product-output",
+  expectedObservable: observable,
+  fixture: "Default New York, 21 June, 17:00",
+  id,
+  interactionId,
+  kind: "control",
+  target,
+  userAction: "Click every button.",
+});
+
+const runtimeRow = (id: string, target: string, evidence: ToolcraftComponentAcceptance["evidence"], testName: string, file: `e2e/${string}.spec.ts`, budget: Budget = "standard"): ToolcraftComponentAcceptance => ({
+  automated: true,
+  automatedTestName: `sol contract ${id}`,
+  browser: browser(testName, file, budget),
+  componentType: id,
+  evidence,
+  expectedObservable: `The real product output and runtime workspace implement ${id}.`,
+  fixture: "Default settings and real Toolcraft controls",
+  id,
+  kind: "runtime",
+  target,
+  userAction: `Exercise ${id} through its visible controls.`,
+});
+
+const exportTest = "browser: sol image export delivers every format and size";
 
 export const appAcceptance: readonly ToolcraftComponentAcceptance[] = [
+  sliderRow("place.latitude", SOL_TARGETS.latitude, "Latitude", "Moving toward the pole flattens or raises the curve and changes the day length on the poster.", "latitude-property"),
+  sliderRow("place.longitude", SOL_TARGETS.longitude, "Longitude", "The curve slides along the local clock and the time zone label changes.", "longitude-property"),
+  sliderRow("date.dayOfYear", SOL_TARGETS.dayOfYear, "Day of year", "The curve height, day length and year-strip marker change with the season.", "day-property"),
+  sliderRow("time.hour", SOL_TARGETS.time, "Time of day", "The sun moves along the curve and its time and elevation labels change.", "time-property"),
+  actionRow("place.city", SOL_TARGETS.cityPreset, CITY_PRESETS.map((city) => city.value), "Each city sets both location sliders and the poster names the city and its time zone.", "city-command"),
+  actionRow("date.season", SOL_TARGETS.season, SEASON_PRESETS.map((season) => season.value), "Each season shortcut moves the day of year and redraws the curve and year marker.", "season-command"),
+  actionRow("time.moment", SOL_TARGETS.moment, [NOW_ACTION], "Now moves the day and the sun to the current moment at the place.", "now-command"),
   {
-    automated: true,
-    automatedTestName: "latitude reshapes the arc height and daytime share",
-    browser: true,
-    browserTestName: "browser: latitude slider reshapes the sun arc while dragging",
-    componentType: "slider",
-    evidence: "rendered-pixels",
-    expectedObservable: "Dragging Latitude toward the pole lowers the arc and changes the lit daytime share and day length drawn on the canvas.",
-    fixture: "Default New York location on a fixed day of the year.",
-    id: "location-latitude",
-    kind: "control",
-    target: "location.latitude",
-    userAction: "Drag the Latitude slider thumb.",
-  },
-  {
-    automated: true,
-    automatedTestName: "longitude changes the place used for API clock times",
-    browser: true,
-    browserTestName: "browser: longitude slider changes the clock times on the canvas",
-    componentType: "slider",
-    evidence: "rendered-pixels",
-    expectedObservable: "Dragging Longitude to the far east changes the sunrise, noon, and sunset times drawn under the arc.",
-    fixture: "Stubbed Sunrise-Sunset API answering per longitude.",
-    id: "location-longitude",
-    kind: "control",
-    target: "location.longitude",
-    userAction: "Drag the Longitude slider thumb.",
-  },
-  {
-    actionCoverage: ["city-new-york", "city-london", "city-tokyo", "city-sydney", "city-singapore", "city-reykjavik", "city-cape-town"],
-    automated: true,
-    automatedTestName: "city presets set latitude and longitude",
-    browser: true,
-    browserTestName: "browser: each city button moves the location sliders and redraws the arc",
-    componentType: "actions",
-    evidence: "rendered-pixels",
-    expectedObservable: "Each city button sets Latitude and Longitude to that city and the canvas redraws for it.",
-    fixture: "All seven city buttons from the default state.",
-    id: "location-city-preset",
-    kind: "control",
-    target: "location.cityPreset",
-    userAction: "Click every city button.",
-  },
-  {
-    automated: true,
-    automatedTestName: "day of year moves the arc with the season",
-    browser: true,
-    browserTestName: "browser: day of year slider moves the arc with the season while dragging",
-    componentType: "slider",
-    evidence: "rendered-pixels",
-    expectedObservable: "Dragging Day of year from winter to summer raises the arc and lengthens the lit daytime segment.",
-    fixture: "New York latitude, day moved toward the June solstice.",
-    id: "date-day-of-year",
-    kind: "control",
-    target: "date.dayOfYear",
-    userAction: "Drag the Day of year slider thumb.",
-  },
-  {
-    automated: true,
-    automatedTestName: "excluding the background leaves the sky transparent",
-    backgroundOutputCoverage: ["image-transparent-when-excluded", "preview-hidden-when-excluded"],
-    browser: true,
-    browserTestName: "browser: background include switch hides the sky in preview and PNG",
-    componentType: "switch",
-    evidence: "rendered-pixels",
-    expectedObservable: "Turning Include off removes the sky fill from the preview and exports a PNG with transparent background pixels.",
-    fixture: "Default sky colour, PNG format.",
-    id: "export-include-background",
-    kind: "control",
-    target: "export.includeBackground",
-    userAction: "Toggle the Include switch in Background.",
-  },
-  {
-    automated: true,
-    automatedTestName: "sky colour drives the background gradient",
-    browser: true,
-    browserTestName: "browser: sky colour changes the canvas background",
+    ...runtimeRow("appearance.background", SOL_TARGETS.background, "product-output", "browser: sol background color changes output", "e2e/product-sol-appearance.spec.ts"),
     componentType: "color",
-    evidence: "rendered-pixels",
-    expectedObservable: "Choosing a new sky colour recolours the background gradient behind the arc.",
-    fixture: "Background Include on, colour changed to a warm tone.",
-    id: "sky-background",
+    interactionId: "background-color-property",
     kind: "control",
-    target: "sky.background",
-    userAction: "Type a new hex colour into the Background colour field.",
   },
   {
-    automated: true,
-    automatedTestName: "image format selects the export encoder",
-    browser: true,
-    browserTestName: "browser: image format switches the exported file type",
-    componentType: "select",
-    evidence: "exported-bytes",
-    expectedObservable: "Exporting with PNG gives a PNG file and with JPG gives a JPEG file.",
-    fixture: "Export PNG with each format option.",
-    id: "export-image-format",
+    ...runtimeRow("background.output", SOL_TARGETS.includeBackground, "product-output", "browser: sol background output follows runtime semantics", "e2e/product-sol-background.spec.ts"),
+    backgroundOutputCoverage: "all-required-background-output",
+    componentType: "switch",
+    interactionId: "background-include-property",
     kind: "control",
-    optionCoverage: "each-visible-item",
-    target: "export.image.format",
-    userAction: "Choose each Format option and click Export PNG.",
   },
+  ...(["format", "resolution"] as const).map(
+    (key): ToolcraftComponentAcceptance => ({
+      ...runtimeRow(`export.image.${key}`, `export.image.${key}`, "exported-bytes", exportTest, "e2e/product-sol-export.spec.ts", "extended-io"),
+      componentType: "select",
+      kind: "control",
+      optionCoverage: key === "format" ? ["png", "jpg"] : ["2k", "4k", "8k"],
+    }),
+  ),
   {
-    automated: true,
-    automatedTestName: "image resolution sets the exported pixel size",
-    browser: true,
-    browserTestName: "browser: image resolution changes the exported pixel size",
-    componentType: "select",
-    evidence: "exported-bytes",
-    expectedObservable: "Exporting at 2K, 4K, and 8K gives images 2048, 4096, and 8192 pixels on the long edge.",
-    fixture: "16:9 canvas exported at each resolution.",
-    id: "export-image-resolution",
-    kind: "control",
-    optionCoverage: "each-visible-item",
-    target: "export.image.resolution",
-    userAction: "Choose each Resolution option and click Export PNG.",
-  },
-  {
-    actionCoverage: ["export-png"],
-    automated: true,
-    automatedTestName: "export renders the current scene at the selected size",
-    browser: true,
-    browserTestName: "browser: Export PNG downloads the current sun path",
+    ...runtimeRow("export.image", "actions.output", "exported-bytes", exportTest, "e2e/product-sol-export.spec.ts", "extended-io"),
+    actionCoverage: ["export.png"],
     componentType: "panelActions",
-    evidence: "exported-bytes",
-    expectedObservable: "Export PNG downloads a decodable image of the current sky, arc, and labels at the selected resolution.",
-    fixture: "Default settings, 4K PNG.",
-    id: "export-png-action",
     kind: "control",
-    target: "export.actions",
-    userAction: "Click Export PNG.",
+    exportArtifactCoverage: "all-required-image-export-behavior",
+  },
+  {
+    ...runtimeRow("export.infinity", "actions.output", "exported-bytes", exportTest, "e2e/product-sol-export.spec.ts", "extended-io"),
+    infinityCanvasCoverage: "scene-bounds-image-export",
+  },
+  {
+    ...runtimeRow("canvas.size", "canvas.size.width", "product-output", "browser: sol canvas sizing changes output", "e2e/product-sol-canvas.spec.ts"),
+  },
+  {
+    ...runtimeRow("canvas.scale", "canvas.renderScale", "product-output", "browser: sol backing preserves selected render scale", "e2e/product-sol-canvas.spec.ts"),
+    renderScaleCoverage: { kind: "selected-backing-pixels", states: ["interaction", "steady"] },
+  },
+  {
+    ...runtimeRow("canvas.infinity", "canvas.infinity", "viewport-side-effect", "browser: sol infinity preserves scene and viewport", "e2e/product-sol-canvas.spec.ts"),
+    infinityCanvasCoverage: "mode-continuity-and-restoration",
+  },
+  {
+    automated: true,
+    automatedTestName: "declares production reload coverage for the starter schema",
+    browser: {
+      budget: "extended-io",
+      file: "e2e/product-sol-persistence.spec.ts",
+      testName: "browser: sol restores poster and workspace after reload",
+    },
+    componentType: "persistence",
+    evidence: "persistence-state",
+    expectedObservable: "Canvas size, zoom, the chosen city and the moved, collapsed Controls panel are restored after a real reload, and the poster matches its pre-reload pixels.",
+    fixture: "Sol persisted workspace",
+    id: "persistence.reload",
+    kind: "runtime",
+    persistenceCoverage: "reload",
+    persistenceSlices: appSchema.persistence.storage === "localStorage" ? appSchema.persistence.include : [],
+    target: "canvas.size.width",
+    userAction: "Change Canvas width, pick Tokyo, zoom in, move and collapse Controls, wait for persistence, and reload the page.",
   },
 ];

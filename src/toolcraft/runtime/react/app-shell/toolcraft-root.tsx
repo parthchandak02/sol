@@ -1,23 +1,34 @@
 "use client";
 
 import * as React from "react";
+import { ToolcraftHistoryContext, createRuntimeHistoryPort, requestToolcraftHistory } from './history-scope';
 
-import type { ResolvedToolcraftAppSchema } from "../../schema/types";
+import type { AnyToolcraftRendererPipelineRegistration } from "../../rendering";
+import type { ResolvedToolcraftAppSchema } from "../../schema/resolved-app-schema";
 import { createToolcraftState } from "../../state/create-template-state";
+import { mergeToolcraftInitialState } from "../../composition/public-persistence";
+import { createToolcraftExternalStore } from "../../composition/public-state";
+import type { ToolcraftCommand, ToolcraftInitialState, ToolcraftState } from "../../state/types";
 import {
-  createToolcraftPersistenceSnapshot,
-  getToolcraftPersistenceKey,
-  mergeToolcraftInitialState,
-  parseToolcraftPersistenceSnapshot,
-} from "../../state/persistence";
-import { toolcraftReducer } from "../../state/reducer";
-import type {
-  ToolcraftCommand,
-  ToolcraftInitialState,
-  ToolcraftState,
-} from "../../state/types";
-import { readToolcraftLocalStorageValue } from "./storage-key-migration";
-import { ToolcraftThemeProvider } from "./theme-runtime";
+  ToolcraftThemeContext,
+  ToolcraftThemeProvider,
+  ToolcraftThemeScope,
+} from "./theme-runtime";
+import { ToolcraftBrowserZoomBoundary } from "./toolcraft-browser-zoom-boundary";
+import { ToolcraftPipelineProvider } from "./toolcraft-pipeline-context";
+import { ToolcraftSourceAssetProvider } from "./toolcraft-source-asset-context";
+import { ToolcraftExportProvider } from "./toolcraft-export-context";
+import { ToolcraftStoreContext } from "./toolcraft-store-context";
+import type { ToolcraftModelPresentationMode } from "../model-rendering/model-render-binding";
+import {
+  resolveToolcraftModelPresentationMode,
+  ToolcraftModelPresentationModeContext,
+} from "../model-rendering/model-presentation-mode";
+import {
+  ToolcraftPersistenceStatusProvider,
+  useToolcraftPersistence,
+} from "./use-toolcraft-persistence";
+import { readToolcraftPersistenceBootstrap } from "./toolcraft-persistence-bootstrap";
 
 export type ToolcraftContextValue = {
   dispatch: React.Dispatch<ToolcraftCommand>;
@@ -29,51 +40,26 @@ export const ToolcraftContext = React.createContext<ToolcraftContextValue | null
 export type ToolcraftRootProps = {
   children: React.ReactNode;
   initialState?: ToolcraftInitialState;
+  modelPresentation?: ToolcraftModelPresentationMode;
+  persistenceAuthority?: "runtime" | "external";
+  rendererPipelineRegistration?: AnyToolcraftRendererPipelineRegistration;
   schema: ResolvedToolcraftAppSchema;
 };
 
-function readPersistedInitialState(
-  schema: ResolvedToolcraftAppSchema,
-): ToolcraftInitialState | undefined {
-  const storageKey = getToolcraftPersistenceKey(schema.persistence);
-
-  if (!storageKey || typeof window === "undefined") {
-    return undefined;
-  }
-
-  try {
-    return parseToolcraftPersistenceSnapshot(
-      schema,
-      readToolcraftLocalStorageValue(storageKey),
-    );
-  } catch {
-    return undefined;
-  }
-}
-
-function writePersistedState(
-  schema: ResolvedToolcraftAppSchema,
-  state: ToolcraftState,
-): void {
-  const storageKey = getToolcraftPersistenceKey(schema.persistence);
-
-  if (!storageKey || typeof window === "undefined") {
-    return;
-  }
-
-  const snapshot = createToolcraftPersistenceSnapshot(state, schema.persistence);
-
-  if (!snapshot) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
-  } catch {
-    // Persistence is best-effort; runtime state stays authoritative when storage is unavailable.
-  }
-}
-
+const nativeTextEditingInputTypes = new Set([
+  "date",
+  "datetime-local",
+  "email",
+  "month",
+  "number",
+  "password",
+  "search",
+  "tel",
+  "text",
+  "time",
+  "url",
+  "week",
+]);
 function isEditableKeyboardTarget(target: EventTarget | null): boolean {
   if (!target || typeof target !== "object") {
     return false;
@@ -83,6 +69,7 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
     closest?: (selector: string) => Element | null;
     isContentEditable?: boolean;
     tagName?: string;
+    type?: string;
   };
 
   if (candidate.isContentEditable) {
@@ -95,7 +82,13 @@ function isEditableKeyboardTarget(target: EventTarget | null): boolean {
 
   const tagName = candidate.tagName?.toLowerCase();
 
-  return tagName === "input" || tagName === "textarea" || tagName === "select";
+  if (tagName === "textarea" || tagName === "select") {
+    return true;
+  }
+
+  return (
+    tagName === "input" && nativeTextEditingInputTypes.has(candidate.type?.toLowerCase() ?? "text")
+  );
 }
 
 function isUndoShortcut(event: KeyboardEvent): boolean {
@@ -120,23 +113,41 @@ function isRedoShortcut(event: KeyboardEvent): boolean {
 export function ToolcraftRoot({
   children,
   initialState,
+  modelPresentation,
+  persistenceAuthority = "runtime",
+  rendererPipelineRegistration,
   schema,
 }: ToolcraftRootProps) {
-  const [state, dispatch] = React.useReducer(
-    toolcraftReducer,
-    { initialState, schema },
-    ({ initialState, schema }) =>
-      createToolcraftState(
-        schema,
-        mergeToolcraftInitialState(readPersistedInitialState(schema), initialState),
-      ),
+  const inheritedTheme = React.useContext(ToolcraftThemeContext);
+  const persistenceSchema = schema;
+  const storageKind = "localStorage";
+  const [persistenceBootstrap] = React.useState(() =>
+    persistenceAuthority === "external"
+      ? {}
+      : readToolcraftPersistenceBootstrap(persistenceSchema, storageKind),
   );
-  const latestStateRef = React.useRef(state);
+  const [owner] = React.useState(() => {
+    const state = createToolcraftState(
+      schema,
+      mergeToolcraftInitialState(persistenceBootstrap.initialState, initialState),
+    );
+    return createToolcraftExternalStore(state);
+  });
+  const store = owner;
+  const history = React.useMemo(() => createRuntimeHistoryPort(store), [store]);
+  const state = React.useSyncExternalStore(store.subscribe, store.getState, store.getState);
+  const dispatch: React.Dispatch<ToolcraftCommand> = store.dispatch;
+  const persistenceStatus = useToolcraftPersistence(persistenceSchema, store, {
+    authority: persistenceAuthority,
+    storageKind,
+    blockedReason: persistenceBootstrap.blockedReason,
+    checkpoint: persistenceBootstrap.checkpoint,
+  });
   const value = React.useMemo(() => ({ dispatch, state }), [dispatch, state]);
-
-  React.useEffect(() => {
-    latestStateRef.current = state;
-  }, [state]);
+  const resolvedModelPresentation = React.useMemo(
+    () => resolveToolcraftModelPresentationMode(schema, modelPresentation),
+    [modelPresentation, schema],
+  );
 
   React.useEffect(() => {
     if (!schema.toolbar.history || typeof document === "undefined") {
@@ -150,13 +161,13 @@ export function ToolcraftRoot({
 
       if (isUndoShortcut(event)) {
         event.preventDefault();
-        dispatch({ type: "history.undo" });
+        requestToolcraftHistory(history, 'undo');
         return;
       }
 
       if (isRedoShortcut(event)) {
         event.preventDefault();
-        dispatch({ type: "history.redo" });
+        requestToolcraftHistory(history, 'redo');
       }
     };
 
@@ -165,39 +176,40 @@ export function ToolcraftRoot({
     return () => {
       document.removeEventListener("keydown", handleDocumentKeyDown);
     };
-  }, [dispatch, schema.toolbar.history]);
+  }, [history, schema.toolbar.history]);
 
-  React.useEffect(() => {
-    if (schema.persistence.storage !== "localStorage") {
-      return undefined;
-    }
+  const workspace = (
+    <ToolcraftStoreContext.Provider value={store}>
+        <ToolcraftSourceAssetProvider store={store}>
+          <ToolcraftExportProvider store={store}>
+            <ToolcraftHistoryContext.Provider value={history}>
+              <ToolcraftContext.Provider value={value}>{children}</ToolcraftContext.Provider>
+            </ToolcraftHistoryContext.Provider>
+          </ToolcraftExportProvider>
+        </ToolcraftSourceAssetProvider>
+    </ToolcraftStoreContext.Provider>
+  );
+  const content = (
+    <ToolcraftPersistenceStatusProvider status={persistenceStatus}>
+      <ToolcraftModelPresentationModeContext.Provider value={resolvedModelPresentation}>
+        <ToolcraftBrowserZoomBoundary>
+          {inheritedTheme ? (
+            <ToolcraftThemeScope value={inheritedTheme}>{workspace}</ToolcraftThemeScope>
+          ) : (
+            <ToolcraftThemeProvider defaultPreference={schema.sourceDefaults?.theme}>
+              {workspace}
+            </ToolcraftThemeProvider>
+          )}
+        </ToolcraftBrowserZoomBoundary>
+      </ToolcraftModelPresentationModeContext.Provider>
+    </ToolcraftPersistenceStatusProvider>
+  );
 
-    const persistTimer = window.setTimeout(() => {
-      writePersistedState(schema, state);
-    }, 120);
-
-    return () => window.clearTimeout(persistTimer);
-  }, [schema, state]);
-
-  React.useEffect(() => {
-    if (schema.persistence.storage !== "localStorage") {
-      return undefined;
-    }
-
-    const handlePageHide = () => {
-      writePersistedState(schema, latestStateRef.current);
-    };
-
-    window.addEventListener("pagehide", handlePageHide);
-
-    return () => {
-      window.removeEventListener("pagehide", handlePageHide);
-    };
-  }, [schema]);
-
-  return (
-    <ToolcraftThemeProvider>
-      <ToolcraftContext.Provider value={value}>{children}</ToolcraftContext.Provider>
-    </ToolcraftThemeProvider>
+  return rendererPipelineRegistration ? (
+    <ToolcraftPipelineProvider registration={rendererPipelineRegistration}>
+      {content}
+    </ToolcraftPipelineProvider>
+  ) : (
+    content
   );
 }

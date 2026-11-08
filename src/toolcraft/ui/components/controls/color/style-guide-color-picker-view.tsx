@@ -23,10 +23,6 @@ export function ColorPickerView(props: ColorPickerViewProps) {
         surfacePosition={props.surfacePosition}
         isSurfaceDragging={props.isSurfaceDragging}
         onPointerDown={props.onSurfacePointerDown}
-        onThumbPointerDown={(event) => {
-          event.stopPropagation();
-          props.onSurfacePointerDown(event);
-        }}
       />
       <div
         data-slot="style-guide-color-controls"

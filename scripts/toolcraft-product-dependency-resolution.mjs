@@ -1,126 +1,34 @@
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 
-const require = createRequire(import.meta.url);
-let compilerLoadAttempted = false;
-let typescriptCompiler;
-
-function getTypeScriptCompiler() {
-  if (compilerLoadAttempted) return typescriptCompiler;
-  compilerLoadAttempted = true;
-  try {
-    const importedCompiler = require("typescript");
-    typescriptCompiler = importedCompiler.default ?? importedCompiler;
-  } catch (error) {
-    if (error?.code !== "MODULE_NOT_FOUND") throw error;
-  }
-  return typescriptCompiler;
-}
-
-export function isToolcraftDependencyCompilerAvailable() {
-  return Boolean(getTypeScriptCompiler());
-}
+import { getToolcraftTypeScriptCompiler } from "./toolcraft-typescript-source-evidence.mjs";
 
 export const toolcraftModuleExtensions = [
-  ".ts",
-  ".tsx",
-  ".mts",
-  ".cts",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
+  ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs",
 ];
+
+export function createToolcraftDefaultSourceAliases(rootDir) {
+  return [
+    {
+      match: "@/*",
+      replacement: path.resolve(rootDir, "src/*"),
+    },
+    {
+      match: "#/*",
+      replacement: path.resolve(rootDir, "src/*"),
+    },
+  ];
+}
 
 const javascriptToTypeScriptExtensions = new Map([
   [".js", [".ts", ".tsx"]],
   [".jsx", [".tsx", ".ts"]],
-  [".mjs", [".mts"]],
-  [".cjs", [".cts"]],
+  [".mjs", [".mts"]], [".cjs", [".cts"]],
 ]);
 
 function compareCodeUnits(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function scriptKind(filePath, ts) {
-  if (/\.tsx$/iu.test(filePath)) return ts.ScriptKind.TSX;
-  if (/\.jsx$/iu.test(filePath)) return ts.ScriptKind.JSX;
-  if (/\.[cm]?js$/iu.test(filePath)) return ts.ScriptKind.JS;
-  return ts.ScriptKind.TS;
-}
-
-function importDeclarationIsTypeOnly(node, ts) {
-  const clause = node.importClause;
-  if (!clause) return false;
-  if (clause.isTypeOnly) return true;
-  if (clause.name || !clause.namedBindings) return false;
-  return (
-    ts.isNamedImports(clause.namedBindings) &&
-    clause.namedBindings.elements.length > 0 &&
-    clause.namedBindings.elements.every((element) => element.isTypeOnly)
-  );
-}
-
-function exportDeclarationIsTypeOnly(node, ts) {
-  if (node.isTypeOnly) return true;
-  return (
-    node.exportClause &&
-    ts.isNamedExports(node.exportClause) &&
-    node.exportClause.elements.length > 0 &&
-    node.exportClause.elements.every((element) => element.isTypeOnly)
-  );
-}
-
-export function collectToolcraftStaticModuleSpecifiers(filePath, source) {
-  const ts = getTypeScriptCompiler();
-  if (!ts) return [];
-  const sourceFile = ts.createSourceFile(
-    filePath,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind(filePath, ts),
-  );
-  const specifiers = new Set();
-
-  function visit(node) {
-    if (
-      ts.isImportDeclaration(node) &&
-      !importDeclarationIsTypeOnly(node, ts) &&
-      ts.isStringLiteralLike(node.moduleSpecifier)
-    ) {
-      specifiers.add(node.moduleSpecifier.text);
-    } else if (
-      ts.isExportDeclaration(node) &&
-      !exportDeclarationIsTypeOnly(node, ts) &&
-      node.moduleSpecifier &&
-      ts.isStringLiteralLike(node.moduleSpecifier)
-    ) {
-      specifiers.add(node.moduleSpecifier.text);
-    } else if (
-      ts.isImportEqualsDeclaration(node) &&
-      !node.isTypeOnly &&
-      ts.isExternalModuleReference(node.moduleReference) &&
-      node.moduleReference.expression &&
-      ts.isStringLiteralLike(node.moduleReference.expression)
-    ) {
-      specifiers.add(node.moduleReference.expression.text);
-    } else if (
-      ts.isCallExpression(node) &&
-      node.arguments.length === 1 &&
-      ts.isStringLiteralLike(node.arguments[0]) &&
-      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) && node.expression.text === "require"))
-    ) {
-      specifiers.add(node.arguments[0].text);
-    }
-    ts.forEachChild(node, visit);
-  }
-
-  visit(sourceFile);
-  return [...specifiers].sort(compareCodeUnits);
 }
 
 function getExportTarget(value) {
@@ -150,7 +58,7 @@ export async function loadToolcraftLocalModuleAliases({
   tsconfigPaths = [],
 }) {
   const aliases = [];
-  const ts = getTypeScriptCompiler();
+  const ts = getToolcraftTypeScriptCompiler();
   if (ts) {
     for (const configEntry of tsconfigPaths) {
       const relativeConfigPath =
@@ -190,6 +98,10 @@ export async function loadToolcraftLocalModuleAliases({
       continue;
     }
     if (typeof packageJson.name !== "string") continue;
+    aliases.push({
+      kind: "local-package-identity",
+      localPackageName: packageJson.name,
+    });
     for (const [exportKey, exportValue] of getPackageExportEntries(
       packageJson.exports,
     )) {
@@ -207,14 +119,15 @@ export async function loadToolcraftLocalModuleAliases({
 
   return aliases.sort(
     (left, right) =>
-      right.match.length - left.match.length ||
-      compareCodeUnits(left.match, right.match),
+      (right.match?.length ?? 0) - (left.match?.length ?? 0) ||
+      compareCodeUnits(left.match ?? "", right.match ?? ""),
   );
 }
 
 function aliasCandidates(specifier, importerRepoPath, aliases) {
   const candidates = [];
   for (const alias of aliases) {
+    if (alias.kind === "local-package-identity") continue;
     if (alias.importerPrefix && !importerRepoPath.startsWith(alias.importerPrefix)) {
       continue;
     }
@@ -235,11 +148,41 @@ function aliasCandidates(specifier, importerRepoPath, aliases) {
   return candidates;
 }
 
-function resolveModuleCandidate(basePath, entryByAbsolutePath) {
+function cleanModuleSpecifier(specifier) {
+  const withoutQuery = specifier.replace(/\?.*$/u, "");
+  return withoutQuery.startsWith("#")
+    ? withoutQuery
+    : withoutQuery.replace(/#.*$/u, "");
+}
+
+export function isToolcraftLocalDependencySpecifier({
+  aliases,
+  importer,
+  specifier,
+}) {
+  const cleanSpecifier = cleanModuleSpecifier(specifier);
+  return (
+    cleanSpecifier.startsWith(".") ||
+    cleanSpecifier.startsWith("/") ||
+    aliasCandidates(cleanSpecifier, importer.repoPath, aliases).length > 0 ||
+    aliases.some(
+      ({ localPackageName }) =>
+        localPackageName &&
+        (cleanSpecifier === localPackageName ||
+          cleanSpecifier.startsWith(`${localPackageName}/`)),
+    )
+  );
+}
+
+function resolveModuleCandidate(
+  basePath,
+  entryByAbsolutePath,
+  { allowUnscanned = false, unscannedExtensions = toolcraftModuleExtensions } = {},
+) {
   const normalizedBase = path.resolve(basePath);
   const candidates = [normalizedBase];
   const extension = path.extname(normalizedBase);
-  if (!extension) {
+  if (!toolcraftModuleExtensions.includes(extension)) {
     candidates.push(
       ...toolcraftModuleExtensions.map((item) => `${normalizedBase}${item}`),
       ...toolcraftModuleExtensions.map((item) =>
@@ -251,20 +194,28 @@ function resolveModuleCandidate(basePath, entryByAbsolutePath) {
       candidates.push(`${normalizedBase.slice(0, -extension.length)}${replacement}`);
     }
   }
-  return candidates.find((candidate) => entryByAbsolutePath.has(candidate));
+  const inventoriedCandidate = candidates.find((candidate) =>
+    entryByAbsolutePath.has(candidate),
+  );
+  if (inventoriedCandidate || !allowUnscanned) return inventoriedCandidate;
+  return candidates.find(
+    (candidate) =>
+      unscannedExtensions.includes(path.extname(candidate)) &&
+      fsSync.existsSync(candidate) &&
+      fsSync.statSync(candidate).isFile(),
+  );
 }
 
 export function resolveToolcraftLocalDependency({
   aliases,
+  allowUnscanned = false,
   entryByAbsolutePath,
   importer,
   rootDir,
   specifier,
+  unscannedExtensions,
 }) {
-  const withoutQuery = specifier.replace(/\?.*$/u, "");
-  const cleanSpecifier = withoutQuery.startsWith("#")
-    ? withoutQuery
-    : withoutQuery.replace(/#.*$/u, "");
+  const cleanSpecifier = cleanModuleSpecifier(specifier);
   const baseCandidates = cleanSpecifier.startsWith(".")
     ? [path.resolve(path.dirname(importer.absolutePath), cleanSpecifier)]
     : cleanSpecifier.startsWith("/")
@@ -272,7 +223,10 @@ export function resolveToolcraftLocalDependency({
       : aliasCandidates(cleanSpecifier, importer.repoPath, aliases);
 
   for (const basePath of baseCandidates) {
-    const resolved = resolveModuleCandidate(basePath, entryByAbsolutePath);
+    const resolved = resolveModuleCandidate(basePath, entryByAbsolutePath, {
+      allowUnscanned,
+      unscannedExtensions,
+    });
     if (resolved) return resolved;
   }
   return undefined;

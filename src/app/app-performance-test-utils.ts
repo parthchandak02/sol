@@ -5,9 +5,16 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 import { collectToolcraftSourceInventorySync } from "../../scripts/toolcraft-source-inventory.mjs";
+import {
+  collectToolcraftTypeScriptCallTargets,
+  collectToolcraftTypeScriptModuleBindings,
+  createToolcraftTypeScriptChecker,
+  getToolcraftTypeScriptImportedCallTarget,
+  unwrapToolcraftTypeScriptExpression,
+} from "../../scripts/toolcraft-typescript-analysis.mjs";
 
-import { sourceDefinesProductCanvasContent } from "./app-acceptance.source-test-utils";
-import { appPerformance } from "./app-performance";
+import { compositionHasProductCanvasSurface } from "./app-acceptance.composition-test-utils";
+import { appComposition } from "./app-composition";
 import { appSchema } from "./app-schema";
 
 export const appDir = dirname(fileURLToPath(import.meta.url));
@@ -15,6 +22,102 @@ export const srcDir = join(appDir, "..");
 export const routesDir = join(appDir, "../routes");
 export const e2eDir = join(appDir, "../../e2e");
 export const projectDir = join(appDir, "../..");
+
+export function createToolcraftTypeScriptSourceAnalysis(
+  source: string,
+  fileName: string,
+) {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const checker = createToolcraftTypeScriptChecker(sourceFile, ts);
+  const bindings = collectToolcraftTypeScriptModuleBindings(
+    sourceFile,
+    ts,
+    checker,
+  );
+  const callTargets = collectToolcraftTypeScriptCallTargets({
+    bindings,
+    checker,
+    sourceFile,
+    ts,
+  });
+  const importedCalls: Array<
+    Readonly<{
+      call: ts.CallExpression;
+      target: Readonly<{
+        importedName: string;
+        memberPath: string;
+        specifier: string;
+      }>;
+    }>
+  > = [];
+  function visit(node: ts.Node): void {
+    if (ts.isCallExpression(node)) {
+      const target = getToolcraftTypeScriptImportedCallTarget({
+        bindings,
+        checker,
+        expression: node.expression,
+        ts,
+      });
+      if (target) importedCalls.push(Object.freeze({ call: node, target }));
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return Object.freeze({
+    bindings,
+    callTargets,
+    checker,
+    importedCalls: Object.freeze(importedCalls),
+    sourceFile,
+  });
+}
+
+type ToolcraftTypeScriptSourceAnalysis = ReturnType<
+  typeof createToolcraftTypeScriptSourceAnalysis
+>;
+
+export function getToolcraftImportedBinding(
+  analysis: ToolcraftTypeScriptSourceAnalysis,
+  expression: ts.Expression | undefined,
+): Readonly<{ importedName: string; specifier: string }> | undefined {
+  if (!expression) return undefined;
+  const normalized = unwrapToolcraftTypeScriptExpression(expression, ts);
+  if (!ts.isIdentifier(normalized)) return undefined;
+  const symbol =
+    normalized.parent && ts.isShorthandPropertyAssignment(normalized.parent)
+      ? analysis.checker.getShorthandAssignmentValueSymbol(normalized.parent)
+      : analysis.checker.getSymbolAtLocation(normalized);
+  return analysis.bindings.importedBindingSymbols.find(
+    (candidate: { symbol: ts.Symbol }) => candidate.symbol === symbol,
+  )?.binding;
+}
+
+export function toolcraftExpressionReferencesImport(
+  analysis: ToolcraftTypeScriptSourceAnalysis,
+  expression: ts.Expression | undefined,
+  expected: Readonly<{ importedName: string; specifier: string }>,
+): boolean {
+  if (!expression) return false;
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    const binding = ts.isIdentifier(node)
+      ? getToolcraftImportedBinding(analysis, node)
+      : undefined;
+    found =
+      binding?.importedName === expected.importedName &&
+      binding.specifier === expected.specifier;
+    if (!found) ts.forEachChild(node, visit);
+  }
+  visit(expression);
+  return found;
+}
 
 export function playwrightConfigForbidsFocusedTests(): boolean {
   const sourceFile = ts.createSourceFile(
@@ -147,7 +250,7 @@ export function sourceUsesCustomRenderer(): boolean {
   const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
 
   return (
-    sourceDefinesProductCanvasContent() ||
+    compositionHasProductCanvasSurface(appComposition) ||
     /useToolcraft(Value)?\(/.test(appSources) ||
     /getContext\(["']2d["']\)|webgl|webgpu|OffscreenCanvas|ImageData/.test(appSources)
   );
@@ -186,90 +289,4 @@ export function projectDocsIncludeFixedBackgroundDecision(): boolean {
   return /fixedBackgroundReason|fixed background|non-editable background|not user-editable background|reference-defined background|product-defined background/i.test(
     readProjectDecisionSources(),
   );
-}
-
-export function sourceUsesCpuPixelLoop(): boolean {
-  const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
-  const cpuPixelMethodCallPattern =
-    /(?:\.(?:createImageData|getImageData|putImageData)|\[\s*["'](?:createImageData|getImageData|putImageData)["']\s*\])\s*\(/;
-
-  return (
-    /new\s+ImageData\s*\(/.test(appSources) ||
-    cpuPixelMethodCallPattern.test(appSources)
-  );
-}
-
-export function appPerformanceHasRenderPipelinePass(kind: string): boolean {
-  return (appPerformance.rendererPipeline?.passes ?? []).some(
-    (pass) => pass.kind === kind,
-  );
-}
-
-export function appPerformanceHasInteractionInvalidation(interaction: string): boolean {
-  return (appPerformance.rendererPipeline?.interactionInvalidation ?? []).some(
-    (entry) => entry.interaction === interaction,
-  );
-}
-
-export function sourceUsesGpuRenderer(): boolean {
-  const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
-
-  return /getContext\(["']webgl2?["']\)|navigator\.gpu|GPUCanvasContext/.test(appSources);
-}
-
-export function sourceUsesWebGlLifecycleGuard(): boolean {
-  const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
-
-  return (
-    /useEffect\s*\(/.test(appSources) ||
-    /useLayoutEffect\s*\(/.test(appSources) ||
-    /useMemo\s*\(/.test(appSources) ||
-    /useRef\s*\(/.test(appSources) ||
-    /class\s+\w+Renderer/.test(appSources)
-  );
-}
-
-export function sourceCreatesWebGlContextInComponentRender(): boolean {
-  const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
-  const componentRenderPattern =
-    /function\s+[A-Z]\w*\s*\([^)]*\)\s*{(?![\s\S]{0,600}use(?:Layout)?Effect\s*\()[\s\S]{0,600}\.getContext\(["']webgl2?["']\)/;
-
-  return componentRenderPattern.test(appSources);
-}
-
-export function sourceMayUploadTextureFromTimelineDrivenEffect(): boolean {
-  const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
-  const timelineDrivenTextureUploadPattern =
-    /use(?:Layout)?Effect\s*\(\s*\(\)\s*=>\s*{[\s\S]*?(?:texImage2D\s*\(|\.setImage\s*\()[\s\S]*?}\s*,\s*\[[\s\S]*?(?:settings|state\.timeline|currentTimeSeconds|keyframeGroups)[\s\S]*?\]\s*\)/;
-
-  return timelineDrivenTextureUploadPattern.test(appSources);
-}
-
-export function sourceResyncsTimelineDurationFromRuntimeDuration(): boolean {
-  const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
-  const durationResyncPattern =
-    /use(?:Layout)?Effect\s*\(\s*\(\)\s*=>\s*{[\s\S]*?timeline\.setDuration[\s\S]*?}\s*,\s*\[[\s\S]*state\.timeline\.durationSeconds[\s\S]*\]\s*\)/;
-
-  return durationResyncPattern.test(appSources);
-}
-
-export function sourceUsesLowResolutionPreviewUpscale(source = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/))): boolean {
-  const lowResolutionPreviewPattern =
-    /maxPreviewPixels|previewPixelBudget|previewScale|previewRatio|lowRes|lowResolution|downsample/i;
-  const scaledDrawImagePattern =
-    /\.drawImage\s*\([\s\S]{0,240}(?:outputWidth|outputHeight|state\.canvas\.size|canvas\.width|canvas\.height)[\s\S]{0,240}\)/;
-
-  return lowResolutionPreviewPattern.test(source) || scaledDrawImagePattern.test(source);
-}
-
-export function sourceUsesAnimationFrameWithoutCleanup(): boolean {
-  const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
-
-  return /requestAnimationFrame\s*\(/.test(appSources) && !/cancelAnimationFrame\s*\(/.test(appSources);
-}
-
-export function sourceUsesDirectStorageApi(): boolean {
-  const appSources = stripJsComments(readFiles(srcDir, /\.(ts|tsx)$/));
-
-  return /\b(?:localStorage|sessionStorage)\s*\./.test(appSources);
 }

@@ -6,27 +6,27 @@ import {
 } from "@playwright/test";
 
 import { getToolcraftControlFieldByTarget } from "./browser-control-target-helpers";
-
+import {
+  createToolcraftSurfaceActionRunner,
+  normalizeToolcraftSurfaceActionOptions,
+  type ToolcraftBrowserActionSurface,
+  type ToolcraftBrowserSurfaceActionOptions,
+} from "./browser-proof-surface-action";
+import type {
+  ToolcraftBrowserAction,
+  ToolcraftBrowserObservation,
+} from "./browser-proof-types";
 const TOOLCRAFT_APP_ROOT_SELECTOR = '[data-slot="toolcraft-runtime-app"]';
 const TOOLCRAFT_APP_TITLE_SELECTOR = 'meta[name="toolcraft-app-title"]';
 const TOOLCRAFT_SERVER_IDENTITY_PATH = "/.toolcraft/server-identity.json";
 
-declare const toolcraftBrowserActionBrand: unique symbol;
-declare const toolcraftBrowserObservationBrand: unique symbol;
 declare const toolcraftBrowserSessionBrand: unique symbol;
 
-export type ToolcraftBrowserAction<
-  Kind extends string = "interaction",
-  Result = void,
-> = {
-  readonly [toolcraftBrowserActionBrand]: true;
-  readonly kind?: Kind;
-  readonly result?: Result;
-};
-
-export type ToolcraftBrowserObservation<T> = {
-  readonly [toolcraftBrowserObservationBrand]: T;
-};
+export type {
+  ToolcraftBrowserAction,
+  ToolcraftBrowserObservation,
+} from "./browser-proof-types";
+export type { ToolcraftBrowserActionSurface } from "./browser-proof-surface-action";
 
 export type ToolcraftBrowserProofSession = {
   action<Result = void>(
@@ -35,6 +35,14 @@ export type ToolcraftBrowserProofSession = {
   controlAction<Result = void>(
     target: string,
     run: (control: Locator, page: Page) => Promise<Result>,
+  ): ToolcraftBrowserAction<"interaction", Result>;
+  surfaceAction(
+    target: string,
+    options: ToolcraftBrowserSurfaceActionOptions,
+  ): ToolcraftBrowserAction<"interaction">;
+  targetAction<Result = void>(
+    target: string,
+    run: (page: Page) => Promise<Result>,
   ): ToolcraftBrowserAction<"interaction", Result>;
   observe<T>(
     read: (root: HTMLElement) => T | Promise<T>,
@@ -56,6 +64,7 @@ type ActionRecord = {
   kind: "interaction" | "reload";
   run: (page: Page) => Promise<unknown>;
   session: SessionRecord;
+  surface?: ToolcraftBrowserActionSurface;
   target?: string;
 };
 
@@ -212,6 +221,16 @@ function requireSession(value: unknown): SessionRecord {
   return record;
 }
 
+function normalizeActionTarget(target: string): string {
+  const normalizedTarget = target.trim();
+  if (!normalizedTarget) {
+    throw new Error(
+      "A target-scoped Toolcraft browser action requires a non-empty semantic target.",
+    );
+  }
+  return normalizedTarget;
+}
+
 export async function createToolcraftBrowserProofSession(
   page: Page,
 ): Promise<ToolcraftBrowserProofSession> {
@@ -260,7 +279,7 @@ export async function createToolcraftBrowserProofSession(
       target: string,
       run: (control: Locator, currentPage: Page) => Promise<Result>,
     ): ToolcraftBrowserAction<"interaction", Result> {
-      const normalizedTarget = target.trim();
+      const normalizedTarget = normalizeActionTarget(target);
       const action = Object.freeze({}) as ToolcraftBrowserAction<
         "interaction",
         Result
@@ -275,7 +294,40 @@ export async function createToolcraftBrowserProofSession(
           return run(control, currentPage);
         },
         session: record,
+        surface: "panel",
         target: normalizedTarget,
+      });
+      return action;
+    },
+    surfaceAction(
+      target: string,
+      rawOptions: ToolcraftBrowserSurfaceActionOptions,
+    ): ToolcraftBrowserAction<"interaction"> {
+      const normalizedTarget = normalizeActionTarget(target);
+      const options = normalizeToolcraftSurfaceActionOptions(rawOptions);
+      const action = Object.freeze({}) as ToolcraftBrowserAction<"interaction">;
+      actionRecords.set(action, {
+        kind: "interaction",
+        run: createToolcraftSurfaceActionRunner(options),
+        session: record,
+        surface: options.surface,
+        target: normalizedTarget,
+      });
+      return action;
+    },
+    targetAction<Result = void>(
+      target: string,
+      run: (currentPage: Page) => Promise<Result>,
+    ): ToolcraftBrowserAction<"interaction", Result> {
+      const action = Object.freeze({}) as ToolcraftBrowserAction<
+        "interaction",
+        Result
+      >;
+      actionRecords.set(action, {
+        kind: "interaction",
+        run,
+        session: record,
+        target: normalizeActionTarget(target),
       });
       return action;
     },
@@ -332,6 +384,12 @@ export function getToolcraftBrowserActionTarget(
   action: ToolcraftBrowserAction,
 ): string | undefined {
   return requireAction(action).target;
+}
+
+export function getToolcraftBrowserActionSurface(
+  action: ToolcraftBrowserAction,
+): ToolcraftBrowserActionSurface | undefined {
+  return requireAction(action).surface;
 }
 
 export async function readToolcraftBrowserObservation<T>(

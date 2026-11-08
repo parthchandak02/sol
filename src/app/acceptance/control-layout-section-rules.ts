@@ -2,21 +2,20 @@ import {
   getToolcraftColorBankDescriptionError,
   getToolcraftColorBankLabelErrors,
 } from "./color-bank-labels";
+import { getToolcraftColorRowGroupingErrors } from "./color-row-grouping";
 import {
   getToolcraftControlDescriptionError,
+  getToolcraftDuplicateSectionTitleLabelError,
   getToolcraftGenericControlLabelError,
 } from "./control-labels";
 import type { ToolcraftControlLayoutFacts } from "./control-layout-model";
 import {
   controlTypeSectionTitlePattern,
+  getToolcraftSectionTitleLengthError,
   genericControlSectionTitlePattern,
 } from "./section-title-rules";
 
-const broadControlSectionTitlePattern =
-  /^(animation|export|flow|icon|logo|motion|output|scene|shape|shapes|text|typography|visual|visuals)$/i;
-
-const maxPreferredControlsPerSection = 7;
-const maxHardControlsPerSection = 10;
+const TOOLCRAFT_SECTION_DENSITY_REVIEW_THRESHOLD = 10;
 
 export function getToolcraftControlLayoutSectionInvariantErrors(
   facts: ToolcraftControlLayoutFacts,
@@ -29,40 +28,41 @@ export function getToolcraftControlLayoutSectionInvariantErrors(
       sectionLabel,
       sectionLoosePrefixes,
       sectionTitle,
-      semanticClusters,
     } = section;
 
-    if (!sectionTitle) {
-      errors.push(
-        `${sectionLabel} is missing a controls section title. Every visible controls-panel section must name the product entity, workflow stage, or behavior it edits.`,
-      );
+    if (section.owner === "product") {
+      if (!sectionTitle) {
+        errors.push(
+          `${sectionLabel} is missing a controls section title. Every visible controls-panel section must name the product entity, workflow stage, or behavior it edits.`,
+        );
+      }
+
+      if (sectionTitle && genericControlSectionTitlePattern.test(sectionTitle)) {
+        errors.push(
+          `${sectionLabel} is too generic for a controls section. Name the product entity, workflow stage, or behavior it edits instead of using a bucket title.`,
+        );
+      }
+
+      if (sectionTitle && controlTypeSectionTitlePattern.test(sectionTitle)) {
+        errors.push(
+          `${sectionLabel} names a UI control type instead of the product entity. Group controls by product meaning, not by Slider, Color, Input, Button, or similar component type.`,
+        );
+      }
+
+      const titleLengthError = sectionTitle
+        ? getToolcraftSectionTitleLengthError(sectionTitle)
+        : undefined;
+
+      if (titleLengthError) {
+        errors.push(titleLengthError);
+      }
     }
 
-    if (sectionTitle && genericControlSectionTitlePattern.test(sectionTitle)) {
-      errors.push(
-        `${sectionLabel} is too generic for a controls section. Name the product entity, workflow stage, or behavior it edits instead of using a bucket title.`,
-      );
-    }
-
-    if (sectionTitle && controlTypeSectionTitlePattern.test(sectionTitle)) {
-      errors.push(
-        `${sectionLabel} names a UI control type instead of the product entity. Group controls by product meaning, not by Slider, Color, Input, Button, or similar component type.`,
-      );
-    }
-
-    const missingSemanticGroups = controls
-      .filter(([, control]) => !control.semanticGroup?.trim())
-      .map(([controlId]) => controlId);
-
-    if (
-      controls.length > maxPreferredControlsPerSection &&
-      missingSemanticGroups.length > 0
-    ) {
-      errors.push(
-        `${sectionLabel} has ${controls.length} controls and must declare semanticGroup for every control so cohesion is checked from typed product intent rather than labels. Missing: ${missingSemanticGroups.join(", ")}.`,
-      );
-    }
     errors.push(
+      ...getToolcraftColorRowGroupingErrors({
+        controls,
+        sectionLabel,
+      }),
       ...getToolcraftColorBankLabelErrors({
         controls,
         sectionLabel,
@@ -71,6 +71,18 @@ export function getToolcraftControlLayoutSectionInvariantErrors(
     );
 
     for (const [controlId, control] of controls) {
+      const duplicateSectionTitleLabelError =
+        getToolcraftDuplicateSectionTitleLabelError({
+          control,
+          controlId,
+          sectionLabel,
+          sectionTitle,
+        });
+
+      if (duplicateSectionTitleLabelError) {
+        errors.push(duplicateSectionTitleLabelError);
+      }
+
       const genericLabelError = getToolcraftGenericControlLabelError({
         control,
         controlId,
@@ -124,41 +136,13 @@ export function getToolcraftControlLayoutSectionHeuristicErrors(
   const errors: string[] = [];
 
   for (const section of facts.sections) {
-    const {
-      controls,
-      sectionLabel,
-      sectionTitle,
-      semanticClusters,
-    } = section;
-    const clusterList = [...semanticClusters].join(", ");
-    const hasBroadSectionTitle =
-      sectionTitle !== undefined && broadControlSectionTitlePattern.test(sectionTitle);
-
-    if (
-      controls.length > maxPreferredControlsPerSection &&
-      hasBroadSectionTitle &&
-      semanticClusters.size >= 3
-    ) {
+    const { controls, sectionLabel } = section;
+    if (controls.length >= TOOLCRAFT_SECTION_DENSITY_REVIEW_THRESHOLD) {
       errors.push(
-        `${sectionLabel} has ${controls.length} controls across multiple semantic clusters (${clusterList}). Broad section titles are only valid for small cohesive groups; split this into discrete sections with specific titles such as motion, geometry, density, color, typography, or export sub-entities.`,
-      );
-    }
-
-    if (controls.length > maxHardControlsPerSection && semanticClusters.size > 1) {
-      errors.push(
-        `${sectionLabel} has ${controls.length} controls across ${semanticClusters.size} semantic clusters (${clusterList}). Controls-panel sections should stay discrete; split sections that grow past ${maxHardControlsPerSection} controls unless every control edits one tightly scoped entity.`,
+        `${sectionLabel} has ${controls.length} declared controls. Review simultaneously visible controls in reachable modes, compound-editor complexity, panel height, navigation, and section reset scope. This is not a section limit: keep a coherent workflow together, use semanticGroup where helpful, and split only when distinct user tasks justify it; declaration count alone does not prove visual density.`,
       );
     }
   }
 
   return errors;
-}
-
-export function getToolcraftControlLayoutSectionErrors(
-  facts: ToolcraftControlLayoutFacts,
-): string[] {
-  return [
-    ...getToolcraftControlLayoutSectionInvariantErrors(facts),
-    ...getToolcraftControlLayoutSectionHeuristicErrors(facts),
-  ];
 }

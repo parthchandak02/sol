@@ -2,7 +2,12 @@ import { control, decisionCatalog } from "./component-contract-builders";
 import type { ToolcraftComponentContract } from "./types";
 export const TOOLCRAFT_INPUT_COMPONENT_CONTRACTS = {
   aspectRatio: {
-    ...control("aspectRatio", "CanvasAspectRatioControl", "grouped", "required"),
+    ...control(
+      "aspectRatio",
+      "CanvasAspectRatioControl",
+      "grouped",
+      "required",
+    ),
     decisionCatalog: decisionCatalog({
       strictness: "exact-owner",
       ownsValueModel: [
@@ -19,12 +24,13 @@ export const TOOLCRAFT_INPUT_COMPONENT_CONTRACTS = {
         "AspectRatio belongs to the mandatory runtime Setup block before Canvas width and Canvas height.",
       ],
       requiredAcceptance: [
-        "Prove presets resize the current canvas and custom dimensions report the current reduced ratio.",
+        "Prove presets resize the canvas, pixel edits preserve the selected proportion and update the other side, and Custom reveals editable ratio fields distinct from pixel dimensions.",
       ],
     }),
     aiUsageRules: [
       "AspectRatio is runtime-owned Setup UI and is not authored as a product control.",
-      "Manual canvas dimension edits switch the value to Custom without changing the other dimension.",
+      "Canvas dimension edits retain the selected preset or custom ratio and recalculate the opposite side with integer pixel rounding.",
+      "Custom exposes positive-integer Ratio W and Ratio H; Canvas width and Canvas height edit pixel dimensions under that ratio. Invalid ratio input reverts and Escape cancels.",
     ],
   },
   slider: {
@@ -72,6 +78,7 @@ export const TOOLCRAFT_INPUT_COMPONENT_CONTRACTS = {
       "Classify every stepped slider as stepped continuous or visual discrete before writing the schema.",
       'Small semantic integer domains such as rows, cols, gaps, jitter, counts, levels, bands, passes, points, tiles, and segments must use variant: "discrete".',
       'Finite animation step domains such as flip depth, character count, glyph steps, and frame steps must use variant: "discrete" when the marker count stays within the Toolcraft visual budget.',
+      'Visual discrete slider and range-slider variants require authored finite min and max plus a positive step, and may expose at most 32 value positions including endpoints. At 33 or more positions, keep sliderValueKind "discrete" and step but use the continuous visual variant or another built-in control.',
       "Large or precision stepped ranges such as speed, FPS, rate, duration, density, size, and intensity stay visually continuous even when they declare step.",
       "Use slider unit only for real measurement suffixes such as %, px, °, s, ms, fps, rows/cols, or similar domain units.",
       "Do not use unit for repeated entity nouns already named by the section or label, such as Letters + letters, Shape Density / Count + shapes, Words + words, Symbols + symbols, Items + items, Particles + particles, or Layers + layers.",
@@ -84,10 +91,10 @@ export const TOOLCRAFT_INPUT_COMPONENT_CONTRACTS = {
       "For a small named option set, prefer Select or Segmented instead of forcing a discrete Slider.",
       'Specs, plans, and app-schema tests must assert explicit discrete sliders render as variant: "discrete" with markers derived from min, max, and step.',
       'Browser verification can inspect [data-slot="slider"][data-variant="discrete"] plus slider markers to prove the Toolcraft component variant rendered.',
-      "Visual discrete sliders must still drag smoothly; browser performance tests should use expectToolcraftDiscreteSliderDragSmoothness for real pointer drag.",
-      "Use visibleWhen for sliders that are meaningful only in some mode/type/source/include/count states; inactive branches should disappear so the panel shows only controls usable in the current state.",
-      "Do not use schema disabled: true or disabledWhen for product sliders; product panels should show only controls usable in the current state. Use visibleWhen for unavailable product states instead of rendering disabled controls.",
-      "Do not leave an inactive conditional slider visible while making the renderer ignore it; hide it with visibleWhen.",
+      "Visual discrete sliders must still drag smoothly; their canonical performance path adapter should use dragToolcraftSliderByTarget for real pointer drag and let the central path profile own the budget.",
+      'Every product slider declares applicability as mode: "always" or mode: "conditional"; omitted applicability and control-level visibleWhen are rejected.',
+      "Use conditional applicability for sliders that are meaningful only in some mode/type/source/include/count states; every predicate must match and inactive branches disappear.",
+      "Do not use schema disabled: true or disabledWhen for product sliders, and do not leave a visible slider in a branch where its value has no product effect.",
     ],
   },
   rangeSlider: {
@@ -128,6 +135,7 @@ export const TOOLCRAFT_INPUT_COMPONENT_CONTRACTS = {
       "Classify every stepped range slider as stepped continuous or visual discrete before writing the schema.",
       'Small semantic integer domains such as rows, cols, gaps, jitter, counts, levels, bands, passes, points, tiles, and segments must use variant: "discrete".',
       'Finite animation step domains such as flip depth, character count, glyph steps, and frame steps must use variant: "discrete" when the marker count stays within the Toolcraft visual budget.',
+      'Visual discrete slider and range-slider variants require authored finite min and max plus a positive step, and may expose at most 32 value positions including endpoints. At 33 or more positions, keep sliderValueKind "discrete" and step but use the continuous visual variant or another built-in control.',
       "Large or precision stepped ranges such as speed, FPS, rate, duration, density, size, and intensity stay visually continuous even when they declare step.",
       "Use rangeSlider unit only for real measurement suffixes; do not use it for repeated entity nouns already named by the section or label, and do not use x as a unit.",
       "When a range label needs an entity noun to make sense, improve the label or section title instead of appending that noun as the value unit.",
@@ -136,10 +144,10 @@ export const TOOLCRAFT_INPUT_COMPONENT_CONTRACTS = {
       "RangeSlider defaultValue must start with different lower and upper values so the two-thumb control does not collapse into a single-value slider.",
       "Manual range value editing accepts common separators such as slash, hyphen, spaces, and dashes, including when values include unit suffixes such as 30%-150% or 30% - 90%; do not create custom parsers for RangeSlider labels.",
       'Specs, plans, and app-schema tests must assert explicit discrete range sliders render as variant: "discrete" with markers derived from min, max, and step.',
-      "Visual discrete sliders must still drag smoothly; browser performance tests should use expectToolcraftDiscreteSliderDragSmoothness for real pointer drag.",
-      "Use visibleWhen for range sliders that are meaningful only in some mode/type/source/include/count states; inactive branches should disappear so the panel shows only controls usable in the current state.",
-      "Do not use schema disabled: true or disabledWhen for product range sliders; product panels should show only controls usable in the current state. Use visibleWhen for unavailable product states instead of rendering disabled controls.",
-      "Do not leave an inactive conditional range slider visible while making the renderer ignore it; hide it with visibleWhen.",
+      "Visual discrete sliders must still drag smoothly; their canonical performance path adapter should use dragToolcraftSliderByTarget for real pointer drag and let the central path profile own the budget.",
+      'Every product range slider declares applicability as mode: "always" or mode: "conditional"; omitted applicability and control-level visibleWhen are rejected.',
+      "Use conditional applicability for range sliders that are meaningful only in some mode/type/source/include/count states; every predicate must match and inactive branches disappear.",
+      "Do not use schema disabled: true or disabledWhen for product range sliders, and do not leave a visible range slider in a branch where its value has no product effect.",
       "Acceptance must prove both rangeSlider.lower and rangeSlider.upper change the product output; testing one handle is not enough.",
     ],
   },
@@ -227,9 +235,7 @@ export const TOOLCRAFT_INPUT_COMPONENT_CONTRACTS = {
       doNotReplaceWith: [
         "Do not use repeated TextInput controls for one long content value.",
       ],
-      acceptableAlternatives: [
-        "Use TextInput for short single-line values.",
-      ],
+      acceptableAlternatives: ["Use TextInput for short single-line values."],
       layoutConstraints: [
         "CodeTextarea is capped at 12 visible lines and scrolls internally.",
       ],

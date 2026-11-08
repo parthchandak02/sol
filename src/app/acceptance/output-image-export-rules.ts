@@ -33,6 +33,12 @@ export function getToolcraftImageExportErrors(
       errors.push('Image Export format options must include "png" and "jpg".');
     }
 
+    const expectedFormats = facts.hasSvgExportAction ? ["png", "jpg", "svg"] : ["png", "jpg"];
+    if (imageFormatOptionValues.length !== expectedFormats.length ||
+      !expectedFormats.every((format) => imageFormatOptionValues.includes(format))) {
+      errors.push(`Image Export formats must match enabled capabilities exactly: ${expectedFormats.join(", ")}.`);
+    }
+
     if (imageFormatControl.defaultValue !== "png") {
       errors.push('Image Export format must default to "png".');
     }
@@ -61,6 +67,18 @@ export function getToolcraftImageExportErrors(
 
     if (imageResolutionControl.defaultValue !== "4k") {
       errors.push('Image Export resolution must default to "4k".');
+    }
+
+    const applicability = imageResolutionControl.applicability;
+    if (facts.hasSvgExportAction) {
+      const predicate = applicability.mode === "conditional" && applicability.all.length === 1
+        ? applicability.all[0] : undefined;
+      if (!predicate || predicate.target !== "export.image.format" || !("oneOf" in predicate) ||
+        predicate.oneOf?.length !== 2 || !["png", "jpg"].every((format) => predicate.oneOf?.includes(format))) {
+        errors.push("Image Export resolution must be present only for PNG/JPG and absent for SVG.");
+      }
+    } else if (applicability.mode !== "always") {
+      errors.push("Raster-only Image Export resolution must always be available.");
     }
   }
 

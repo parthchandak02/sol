@@ -14,7 +14,7 @@ export type {
 } from "./vector-control-types";
 
 export function VectorControl(props: VectorControlProps): React.JSX.Element {
-  if (props.xLabel === "Width" || props.yLabel === "Height") {
+  if (props.disabled || props.xLabel === "Width" || props.yLabel === "Height") {
     return <VectorSizeField {...props} />;
   }
 

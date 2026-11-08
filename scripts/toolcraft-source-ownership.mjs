@@ -2,6 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  hasValidToolcraftIntegrityManifestSignature,
+  isToolcraftStarterPreflightManifest,
+} from "./toolcraft-integrity-manifest.mjs";
+
 export const toolcraftFrameworkOwnedSourceRoots = Object.freeze([
   "docs/toolcraft",
   "scripts",
@@ -16,19 +21,28 @@ export const toolcraftFrameworkOwnedRootFiles = Object.freeze([
   "index.html",
   "playwright.config.ts",
   "src/main.tsx",
+  "src/app-bootstrap.tsx",
+  "src/desktop-access.ts",
+  "src/desktop-access.css",
   "src/router.tsx",
   "src/routes/index.tsx",
   "src/routes/root.tsx",
   "src/styles.css",
+  "toolcraft/renderer-providers/vgpu/tests/public-entry.typecheck.ts",
+  "toolcraft/renderer-providers/vgpu/tsconfig.json",
   "tsconfig.json",
   "vite.config.ts",
 ]);
 
 export const toolcraftProductOwnedGeneratedPaths = Object.freeze([
   "docs/toolcraft/agent-worklog.md",
+  "docs/toolcraft/workflow-observation.md",
+  "e2e/app-kernel-benchmarks.ts",
   "e2e/app-controls.spec.ts",
+  "e2e/app-performance-path-adapters.ts",
   "src/app/app-acceptance-data.ts",
   "src/app/app-composition.tsx",
+  "src/app/app-defaults.json",
   "src/app/app-performance.ts",
   "src/app/app-schema.test.ts",
   "src/app/app-schema.ts",
@@ -130,8 +144,16 @@ export async function collectToolcraftFrameworkOwnedLocalPaths(rootDir) {
 
   try {
     const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-    return Object.keys(manifest.protectedFiles ?? {}).sort(compareCodeUnits);
+    if (
+      manifest.version !== 3 ||
+      !hasValidToolcraftIntegrityManifestSignature(manifest)
+    ) {
+      return [];
+    }
+    if (!isToolcraftStarterPreflightManifest(manifest))
+      return Object.keys(manifest.protectedFiles ?? {}).sort(compareCodeUnits);
   } catch (error) {
+    if (error instanceof SyntaxError) return [];
     if (error?.code !== "ENOENT") throw error;
   }
 

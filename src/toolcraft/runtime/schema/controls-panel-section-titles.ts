@@ -1,7 +1,10 @@
+import {
+  preserveToolcraftInternalControlSectionRegistration,
+} from "./controls-panel-section-id";
 import { toolcraftRuntimeSetupSectionTitle } from "./runtime-section-titles";
 import type {
   ToolcraftControlSchema,
-  ToolcraftControlSectionSchema,
+  ToolcraftControlSectionSchemaBase,
 } from "./types";
 
 function getImplicitStandaloneSectionTitle(
@@ -143,13 +146,19 @@ function titleizeControlId(id: string): string | undefined {
   return title.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function withImplicitStandaloneSectionTitle(
-  section: ToolcraftControlSectionSchema,
-  entries: readonly [string, ToolcraftControlSchema][],
-): ToolcraftControlSectionSchema {
+export function withImplicitStandaloneSectionTitle<
+  TControl extends ToolcraftControlSchema,
+  TSection extends ToolcraftControlSectionSchemaBase<TControl>,
+>(
+  section: TSection,
+  entries: readonly [string, TControl][],
+): TSection {
   if (section.title) {
     if (isColorOnlySectionEntries(entries) && isGenericColorSectionTitle(section.title)) {
-      return { ...section, title: "Appearance" };
+      return preserveToolcraftInternalControlSectionRegistration(
+        section,
+        { ...section, title: "Appearance" } as TSection,
+      );
     }
 
     return section;
@@ -157,5 +166,8 @@ export function withImplicitStandaloneSectionTitle(
 
   const title = getImplicitStandaloneSectionTitle(entries);
 
-  return { ...section, title };
+  return preserveToolcraftInternalControlSectionRegistration(
+    section,
+    { ...section, title } as TSection,
+  );
 }

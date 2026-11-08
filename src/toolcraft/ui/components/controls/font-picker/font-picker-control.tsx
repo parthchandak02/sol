@@ -4,6 +4,10 @@ import * as React from "react";
 
 import { ControlFieldLabel } from "../../control-layout";
 import {
+  blurActiveBrowserElement,
+  requestBrowserAnimationFrame,
+} from "../../primitives/browser-transport";
+import {
   Field,
   Input,
   Popover,
@@ -145,10 +149,8 @@ export function FontPickerControl({
       if (!nextOpen) {
         cancelOpenSelectedScroll();
         clearHoverPreview();
-        window.requestAnimationFrame(() => {
-          if (document.activeElement === triggerRef.current) {
-            triggerRef.current?.blur();
-          }
+        requestBrowserAnimationFrame(() => {
+          blurActiveBrowserElement(triggerRef.current);
         });
       }
     },

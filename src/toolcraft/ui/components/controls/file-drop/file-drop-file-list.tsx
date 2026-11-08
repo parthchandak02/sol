@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeInteractionHostProps } from "../../primitives/sanitize-composed-host-props";
 import * as React from "react";
 import {
   closestCenter,
@@ -16,24 +17,26 @@ import { PaperclipIcon, XIcon } from "@phosphor-icons/react";
 
 import { cn } from "../../../lib/utils";
 import { Button } from "../../primitives";
-import { FileDropPlusGlyph } from "./file-drop-model";
-import type { FileDropPreview, FileDropPreviewEntry } from "./file-drop-types";
+import { FileDropPlusGlyph } from "./file-drop-presentation";
+import type {
+  FileDropPresentationEntry,
+  FileDropPresentationItem,
+} from "./file-drop-types";
 
 type SortableFileRowProps = {
-  index: number;
+  entry: FileDropPresentationEntry;
   isSortable: boolean;
-  item: FileDropPreview;
-  itemKey: string;
-  onPreviewRemove?: (preview: FileDropPreview, index: number) => void;
+  onItemActivate?: () => void;
+  onItemRemove?: (item: FileDropPresentationItem, index: number) => void;
 };
 
 function SortableFileRow({
-  index,
+  entry,
   isSortable,
-  item,
-  itemKey,
-  onPreviewRemove,
+  onItemActivate,
+  onItemRemove,
 }: SortableFileRowProps): React.JSX.Element {
+  const { item, key: itemKey, sourceIndex } = entry;
   const { attributes, isDragging, listeners, setNodeRef, transform, transition } =
     useSortable({
       disabled: !isSortable,
@@ -44,26 +47,8 @@ function SortableFileRow({
     transition,
   };
   const fileName = item.fileName ?? item.alt ?? "Untitled file";
-
-  return (
-    <div
-      className={cn(
-        "mx-1 flex h-8 min-w-0 items-center gap-2 pr-1 pl-[7px] text-left text-sm text-[color:color-mix(in_oklab,var(--foreground)_86%,transparent)] transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-[color:color-mix(in_oklab,var(--foreground)_3%,transparent)] motion-reduce:transition-none",
-        isSortable && "cursor-grab touch-none select-none",
-        isDragging &&
-          "z-10 cursor-grabbing bg-[color:color-mix(in_oklab,var(--foreground)_5%,transparent)] opacity-90",
-      )}
-      data-file-upload-preview-key={itemKey}
-      data-preview-dragging={isDragging ? "true" : undefined}
-      data-slot="file-upload-file-item"
-      onClick={(event) => {
-        event.stopPropagation();
-      }}
-      ref={setNodeRef}
-      style={style}
-      {...(isSortable ? attributes : {})}
-      {...(isSortable ? listeners : {})}
-    >
+  const content = (
+    <>
       <PaperclipIcon
         aria-hidden="true"
         className="size-4 flex-none text-[color:color-mix(in_oklab,var(--foreground)_48%,transparent)]"
@@ -75,13 +60,50 @@ function SortableFileRow({
       >
         {fileName}
       </span>
-      {onPreviewRemove ? (
+    </>
+  );
+  const contentClassName = cn(
+    "flex h-full min-w-0 flex-1 items-center gap-2 border-0 bg-transparent pl-[7px] text-left text-sm text-[color:color-mix(in_oklab,var(--foreground)_86%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-inset",
+    isSortable && "cursor-grab touch-none select-none active:cursor-grabbing",
+  );
+  return (
+    <div
+      className={cn(
+        "mx-1 flex h-8 min-w-0 items-center pr-1 transition-[background-color,opacity,transform] duration-150 ease-out hover:bg-[color:color-mix(in_oklab,var(--foreground)_3%,transparent)] motion-reduce:transition-none",
+        isDragging &&
+          "z-10 bg-[color:color-mix(in_oklab,var(--foreground)_5%,transparent)] opacity-90",
+      )}
+      data-file-upload-preview-key={itemKey}
+      data-preview-dragging={isDragging ? "true" : undefined}
+      data-slot="file-upload-file-item"
+      ref={setNodeRef}
+      style={style}
+    >
+      {isSortable || onItemActivate ? (
+        <button
+          aria-label={isSortable ? `Reorder ${fileName}` : `Replace ${fileName}`}
+          className={contentClassName}
+          onClick={onItemActivate}
+          {...sanitizeInteractionHostProps(
+            isSortable ? { ...attributes, ...listeners } : {},
+          )}
+          type="button"
+          data-slot="file-upload-file-action"
+          role={undefined}
+        >
+          {content}
+        </button>
+      ) : (
+        <div className={contentClassName}>
+          {content}
+        </div>
+      )}
+      {onItemRemove ? (
         <Button
           aria-label={`Remove ${fileName}`}
           className="flex-none"
-          onClick={(event) => {
-            event.stopPropagation();
-            onPreviewRemove(item, index);
+          onClick={() => {
+            onItemRemove(item, sourceIndex);
           }}
           onPointerDown={(event) => {
             event.stopPropagation();
@@ -99,10 +121,11 @@ function SortableFileRow({
 
 type FileDropFileListProps = {
   isSortable: boolean;
-  onAddFile: () => void;
+  onAddFile?: () => void;
   onDragEnd: (event: DragEndEvent) => void;
-  onPreviewRemove?: (preview: FileDropPreview, index: number) => void;
-  previewEntries: readonly FileDropPreviewEntry[];
+  onItemActivate?: () => void;
+  onItemRemove?: (item: FileDropPresentationItem, index: number) => void;
+  previewEntries: readonly FileDropPresentationEntry[];
   previewKeys: string[];
   sensors: React.ComponentProps<typeof DndContext>["sensors"];
 };
@@ -111,7 +134,8 @@ export function FileDropFileList({
   isSortable,
   onAddFile,
   onDragEnd,
-  onPreviewRemove,
+  onItemActivate,
+  onItemRemove,
   previewEntries,
   previewKeys,
   sensors,
@@ -124,37 +148,41 @@ export function FileDropFileList({
         sensors={sensors}
       >
         <SortableContext items={previewKeys} strategy={verticalListSortingStrategy}>
-          {previewEntries.map(({ item, key }, index) => (
-            <React.Fragment key={key}>
+          {previewEntries.map((entry, index) => (
+            <React.Fragment key={entry.key}>
               <SortableFileRow
-                index={index}
+                entry={entry}
                 isSortable={isSortable}
-                item={item}
-                itemKey={key}
-                onPreviewRemove={onPreviewRemove}
+                onItemActivate={onItemActivate}
+                onItemRemove={onItemRemove}
               />
-              <div
-                aria-hidden="true"
-                className="mx-1 h-px bg-[color:color-mix(in_oklab,var(--border)_5%,transparent)]"
-                data-slot="file-upload-file-divider"
-              />
+              {index < previewEntries.length - 1 ? (
+                <div
+                  aria-hidden="true"
+                  className="mx-1 h-px bg-[color:color-mix(in_oklab,var(--border)_5%,transparent)]"
+                  data-slot="file-upload-file-divider"
+                />
+              ) : null}
             </React.Fragment>
           ))}
         </SortableContext>
       </DndContext>
-      <button
-        aria-label="Add a new file"
-        className="mx-1 box-border flex h-8 w-[calc(100%-0.5rem)] min-w-0 shrink-0 items-center justify-center gap-1.5 px-1 text-xs text-[color:color-mix(in_oklab,var(--foreground)_65%,transparent)] transition-[background-color,color] duration-150 ease-out hover:bg-[color:color-mix(in_oklab,var(--foreground)_3%,transparent)] hover:text-[color:var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-        data-slot="file-upload-add-file"
-        onClick={(event) => {
-          event.stopPropagation();
-          onAddFile();
-        }}
-        type="button"
-      >
-        <FileDropPlusGlyph className="size-3.5" />
-        <span className="font-medium">Add a new file</span>
-      </button>
+      {onAddFile ? (
+        <Button
+          aria-label="Add a new file"
+          className="mx-1 w-[calc(100%-0.5rem)]"
+          onClick={(event) => {
+            event.stopPropagation();
+            onAddFile();
+          }}
+          size="default"
+          type="button"
+          variant="ghost"
+        >
+          <FileDropPlusGlyph className="size-3.5" />
+          <span className="font-medium">Add a new file</span>
+        </Button>
+      ) : null}
     </div>
   );
 }

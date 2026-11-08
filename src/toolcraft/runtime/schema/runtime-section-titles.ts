@@ -1,1 +1,1 @@
-export const toolcraftRuntimeSetupSectionTitle = "Setup";
+export const toolcraftRuntimeSetupSectionTitle = "Settings";

@@ -35,6 +35,14 @@ assertUniqueStringValues(
   toolcraftContractManifest.protectedControlExportNames,
   "protectedControlExportNames",
 );
+assertUniqueStringValues(
+  toolcraftContractManifest.performanceVerification?.evidenceLevels,
+  "performanceVerification.evidenceLevels",
+);
+assertUniqueStringValues(
+  toolcraftContractManifest.performanceVerification?.requestClassification,
+  "performanceVerification.requestClassification",
+);
 
 export const toolcraftDecisionRuleIds = Object.freeze(
   toolcraftContractManifest.decisionRules.map((rule) => rule.id),

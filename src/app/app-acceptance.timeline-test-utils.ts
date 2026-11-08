@@ -3,8 +3,11 @@ import type { ToolcraftComponentAcceptance } from "./acceptance/types";
 export const playbackTimelineAcceptance: ToolcraftComponentAcceptance = {
   automated: true,
   automatedTestName: "connects timeline playback controls to runtime state contract",
-  browser: true,
-  browserTestName: "browser: timeline playback transport controls runtime time",
+  browser: {
+    budget: "standard",
+    file: "e2e/app-controls.spec.ts",
+    testName: "browser: timeline playback transport controls runtime time",
+  },
   componentType: "timeline",
   evidence: "timeline-output",
   expectedObservable:
@@ -34,8 +37,11 @@ export const playbackTimelineAcceptance: ToolcraftComponentAcceptance = {
 export const keyframesTimelineAcceptance: ToolcraftComponentAcceptance = {
   automated: true,
   automatedTestName: "timeline keyframes evaluate rendered output",
-  browser: true,
-  browserTestName: "browser: timeline keyframes evaluate rendered output",
+  browser: {
+    budget: "standard",
+    file: "e2e/app-controls.spec.ts",
+    testName: "browser: timeline keyframes evaluate rendered output",
+  },
   componentType: "timeline",
   evidence: "timeline-output",
   expectedObservable:

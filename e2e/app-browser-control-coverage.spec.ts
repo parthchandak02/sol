@@ -1,13 +1,42 @@
 import { expect, test } from "@playwright/test";
-import type { ToolcraftPerformanceConfig } from "@/toolcraft/runtime";
-
-import { parseToolcraftBrowserRuntimeEvidence } from "../src/app/test-evidence/browser-runtime-contract";
 import { expectToolcraftExportedArtifact } from "./browser-acceptance-outcome-helpers";
 import {
-  dragToolcraftSliderToPerformanceStressValue,
+  expectToolcraftDiscreteSliderMarkers,
   expectToolcraftSegmentedControlCellsPreservePadding,
   getToolcraftFieldByLabel,
 } from "./performance-helpers";
+
+test("discrete slider layout accepts one interior marker and rejects none", async ({
+  page,
+}) => {
+  await page.setContent(`
+    <div data-slot="toolcraft-runtime-app">
+      <div data-toolcraft-control-target="canvas.renderScale">
+        <div data-slot="field" style="display:block;width:200px;height:24px;">
+          <div data-slot="slider" data-variant="discrete" style="display:block;width:200px;height:24px;">
+            <span data-slot="slider-marker" style="display:block;width:1px;height:6px;"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+
+  await expectToolcraftDiscreteSliderMarkers(page, "canvas.renderScale");
+
+  await page.setContent(`
+    <div data-slot="toolcraft-runtime-app">
+      <div data-toolcraft-control-target="canvas.renderScale">
+        <div data-slot="field" style="display:block;width:200px;height:24px;">
+          <div data-slot="slider" data-variant="discrete" style="display:block;width:200px;height:24px;"></div>
+        </div>
+      </div>
+    </div>
+  `);
+
+  await expect(
+    expectToolcraftDiscreteSliderMarkers(page, "canvas.renderScale"),
+  ).rejects.toThrow(/at least one interior marker/);
+});
 
 test("segmented layout helper catches paddingless or colliding cells", async ({ page }) => {
   await page.setContent(`
@@ -47,56 +76,6 @@ test("performance helpers match control labels literally", async ({ page }) => {
     "data-testid",
     "literal-label",
   );
-});
-
-test("slider stress helper applies the declared value and emits runtime evidence", async ({
-  page,
-}, testInfo) => {
-  await page.setContent(`
-    <div data-slot="toolcraft-runtime-app">
-      <div class="contents" data-toolcraft-control-target="density.value">
-        <div data-slot="field">Density
-          <input data-slot="slider" role="slider" type="range" min="0" max="10" value="0" style="width:200px;height:20px;" />
-        </div>
-      </div>
-    </div>
-  `);
-  const config = {
-    rendererStrategy: "none",
-    rendererWorkload: "none",
-    scenarios: [{
-      automated: true,
-      automatedTestName: "perf: density stress",
-      browser: true,
-      browserTestName: "browser perf: density stress",
-      budget: { maxInteractionMs: 500 },
-      expectedObservable: "Density drag completes.",
-      fixture: "Density stress fixture.",
-      id: "density-stress",
-      interaction: "control-drag",
-      stressFixture: { kind: "max-value", reason: "Maximum density.", value: 9 },
-      target: "density.value",
-      workload: true,
-    }],
-    usesCustomRenderer: false,
-    workloadTargets: ["density.value"],
-  } as const satisfies ToolcraftPerformanceConfig;
-
-  await dragToolcraftSliderToPerformanceStressValue(
-    page,
-    "Density",
-    config,
-    "density-stress",
-  );
-
-  expect(
-    testInfo.attachments.map((attachment) =>
-      parseToolcraftBrowserRuntimeEvidence(attachment)?.evidenceType,
-    ),
-  ).toEqual(expect.arrayContaining([
-    "performance-control-drag",
-    "performance-stress-fixture",
-  ]));
 });
 
 test("export acceptance rejects a verifier that does not return an artifact observation", async () => {

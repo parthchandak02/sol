@@ -1,4 +1,8 @@
-import type { ToolcraftPanelType, PanelDragMode, PanelSnapEdge } from "./panel-host-types";
+import type {
+  ToolcraftPanelType,
+  PanelDragMode,
+  PanelSnapEdge,
+} from "./panel-host-types";
 
 type PanelTypeConfig = {
   dragMode: PanelDragMode;

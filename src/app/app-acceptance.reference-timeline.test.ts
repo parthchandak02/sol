@@ -24,8 +24,11 @@ describe("starter acceptance reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference canvas size matches legacy renderer",
-            browser: true,
-            browserTestName: "browser: reference canvas size matches legacy renderer",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference canvas size matches legacy renderer",
+            },
             componentType: "custom-renderer",
             evidence: "rendered-pixels",
             expectedObservable: "The Toolcraft renderer uses the same output dimensions as the reference runtime.",
@@ -38,8 +41,11 @@ describe("starter acceptance reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference control mapping preserves legacy output",
-            browser: true,
-            browserTestName: "browser: reference control mapping preserves legacy output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference control mapping preserves legacy output",
+            },
             componentType: "custom-renderer",
             evidence: "product-output",
             expectedObservable: "Changing each mapped control updates the same renderer parameter as the reference app.",
@@ -52,8 +58,11 @@ describe("starter acceptance reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference renderer state preserves legacy lifecycle",
-            browser: true,
-            browserTestName: "browser: reference renderer state preserves legacy lifecycle",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference renderer state preserves legacy lifecycle",
+            },
             componentType: "custom-renderer",
             evidence: "product-output",
             expectedObservable: "The renderer preserves the reference runtime mutable state lifecycle across frames.",
@@ -67,6 +76,7 @@ describe("starter acceptance reference timeline contract", () => {
         transferMode: {
           behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceFeatureInventory: makeReferenceFeatureInventory(),
           referenceName: "legacy badge wall",
           referenceStudy: referenceStudyEvidence,
@@ -90,6 +100,7 @@ describe("starter acceptance reference timeline contract", () => {
             "pause-resume",
           ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy pause animation",
           referenceTimeline: { behaviorCoverage: [], mode: "none" },
           sourceOfTruth: "reference-runtime",
@@ -114,6 +125,7 @@ describe("starter acceptance reference timeline contract", () => {
             "time-progress",
           ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy restart animation",
           referenceTimeline: { behaviorCoverage: [], mode: "none" },
           sourceOfTruth: "reference-runtime",
@@ -132,6 +144,7 @@ describe("starter acceptance reference timeline contract", () => {
         transferMode: {
           behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy playback animation",
           referenceTimeline: { behaviorCoverage: [], mode: "toolcraft-playback" },
           sourceOfTruth: "reference-runtime",
@@ -170,6 +183,7 @@ describe("starter acceptance reference timeline contract", () => {
             "pause-resume",
           ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy playback animation",
           referenceTimeline: { behaviorCoverage: ["playback"], mode: "toolcraft-playback" },
           sourceOfTruth: "reference-runtime",
@@ -208,6 +222,7 @@ describe("starter acceptance reference timeline contract", () => {
             "pause-resume",
           ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy playback animation",
           referenceTimeline: {
             behaviorCoverage: ["playback"],
@@ -255,6 +270,7 @@ describe("starter acceptance reference timeline contract", () => {
             "time-progress",
           ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy keyframe animation",
           referenceTimeline: { behaviorCoverage: ["keyframes"], mode: "toolcraft-keyframes" },
           sourceOfTruth: "reference-runtime",

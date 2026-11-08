@@ -3,6 +3,15 @@ import type {
   ToolcraftHistoryPatch,
   ToolcraftState,
 } from "./types";
+import {
+  getToolcraftHistoryPatchDomains,
+  getToolcraftHistoryPatchSource,
+  isToolcraftCanvasStateHistoryPatch,
+  isToolcraftControlsResetHistoryPatch,
+  isToolcraftWorkspaceResetHistoryPatch,
+  mergeToolcraftHistoryPatch,
+  tagToolcraftHistoryPatchDomains,
+} from "./history-patch-metadata";
 
 type ToolcraftHistoryOptions = {
   group?: string;
@@ -25,18 +34,18 @@ function getNextToolcraftHistoryState(
   if (group) {
     const previousPatch = state.history.undo.at(-1);
 
-    if (previousPatch?.group === group) {
-      return {
-        redo: [],
-        undo: [
-          ...state.history.undo.slice(0, -1),
-          {
-            ...previousPatch,
-            after: patch.after,
-            label: patch.label,
-          },
-        ],
-      };
+    if (
+      previousPatch?.group === group &&
+      getToolcraftHistoryPatchSource(previousPatch) ===
+        getToolcraftHistoryPatchSource(patch)
+    ) {
+      const merged = mergeToolcraftHistoryPatch(previousPatch, patch);
+      if (merged) {
+        return {
+          redo: [],
+          undo: [...state.history.undo.slice(0, -1), merged],
+        };
+      }
     }
   }
 
@@ -61,24 +70,66 @@ function applyValuePatch(
   return nextValues;
 }
 
-function applyToolcraftHistoryPatch(
-  state: ToolcraftState,
+export function applyCanvasHistoryPatch(
+  canvas: ToolcraftState["canvas"],
   patch: Record<string, unknown>,
-): Pick<
-  ToolcraftState,
-  "canvas" | "layers" | "mediaAssets" | "selectedLayerId" | "timeline" | "values"
-> {
-  const nextCanvas =
-    "canvas.size" in patch
-      ? {
-          ...state.canvas,
-          size: patch["canvas.size"] as ToolcraftState["canvas"]["size"],
-        }
-      : state.canvas;
+  applyFrameFields = false,
+): ToolcraftState["canvas"] {
+  const hasMode = applyFrameFields && "canvas.mode" in patch;
+  const hasOffset = applyFrameFields && "canvas.offset" in patch;
+  const hasSize = "canvas.size" in patch;
+
+  if (!hasMode && !hasOffset && !hasSize) {
+    return canvas;
+  }
 
   return {
-    canvas: nextCanvas,
-    layers: "layers" in patch ? (patch.layers as ToolcraftState["layers"]) : state.layers,
+    ...canvas,
+    ...(hasMode
+      ? { mode: patch["canvas.mode"] as ToolcraftState["canvas"]["mode"] }
+      : {}),
+    ...(hasOffset
+      ? { offset: patch["canvas.offset"] as ToolcraftState["canvas"]["offset"] }
+      : {}),
+    ...(hasSize
+      ? { size: patch["canvas.size"] as ToolcraftState["canvas"]["size"] }
+      : {}),
+  };
+}
+
+function applyToolcraftHistoryPatch(
+  state: ToolcraftState,
+  historyPatch: ToolcraftHistoryPatch,
+  side: "after" | "before",
+): Pick<
+  ToolcraftState,
+  | "controlRanges"
+  | "canvas"
+  | "panels"
+  | "layers"
+  | "mediaAssets"
+  | "selectedLayerId"
+  | "timeline"
+  | "values"
+> {
+  const domains = getToolcraftHistoryPatchDomains(historyPatch);
+  const patch = domains?.state[side] ?? historyPatch[side];
+  const workspaceReset = isToolcraftWorkspaceResetHistoryPatch(historyPatch);
+  const nextCanvas = applyCanvasHistoryPatch(
+    state.canvas,
+    patch,
+    isToolcraftCanvasStateHistoryPatch(historyPatch) ||
+      isToolcraftControlsResetHistoryPatch(historyPatch),
+  );
+
+  return {
+    controlRanges: "controlRanges" in patch ? patch.controlRanges as ToolcraftState["controlRanges"] : state.controlRanges,
+    canvas: workspaceReset ? patch.canvas as ToolcraftState["canvas"] : nextCanvas,
+    panels: workspaceReset ? patch.panels as ToolcraftState["panels"] : state.panels,
+    layers:
+      "layers" in patch
+        ? (patch.layers as ToolcraftState["layers"])
+        : state.layers,
     mediaAssets:
       "mediaAssets" in patch
         ? (patch.mediaAssets as ToolcraftState["mediaAssets"])
@@ -88,8 +139,10 @@ function applyToolcraftHistoryPatch(
         ? (patch.selectedLayerId as ToolcraftState["selectedLayerId"])
         : state.selectedLayerId,
     timeline:
-      "timeline" in patch ? (patch.timeline as ToolcraftState["timeline"]) : state.timeline,
-    values: applyValuePatch(state.values, patch),
+      "timeline" in patch
+        ? (patch.timeline as ToolcraftState["timeline"])
+        : state.timeline,
+    values: workspaceReset ? { ...domains!.values[side] } : applyValuePatch(state.values, domains?.values[side] ?? patch),
   };
 }
 
@@ -111,11 +164,13 @@ export function commitToolcraftStatePatch(
   patch: ToolcraftHistoryPatch,
   historyOptions?: ToolcraftHistoryOptions,
 ): ToolcraftState {
-  const next = applyToolcraftHistoryPatch(state, patch.after);
+  const next = applyToolcraftHistoryPatch(state, patch, "after");
 
   return {
     ...state,
+    controlRanges: next.controlRanges,
     canvas: next.canvas,
+    panels: next.panels,
     history: getNextToolcraftHistoryState(state, patch, historyOptions),
     layers: next.layers,
     mediaAssets: next.mediaAssets,
@@ -125,6 +180,22 @@ export function commitToolcraftStatePatch(
   };
 }
 
+/** Structural-only commands must never overwrite equally named product values. */
+export function commitToolcraftStructuralPatch(
+  state: ToolcraftState,
+  patch: ToolcraftHistoryPatch,
+  historyOptions?: ToolcraftHistoryOptions,
+): ToolcraftState {
+  return commitToolcraftStatePatch(
+    state,
+    tagToolcraftHistoryPatchDomains(patch, {
+      state: patch,
+      values: { before: {}, after: {} },
+    }),
+    historyOptions,
+  );
+}
+
 export function undoToolcraftHistory(state: ToolcraftState): ToolcraftState {
   const patch = state.history.undo.at(-1);
 
@@ -132,11 +203,13 @@ export function undoToolcraftHistory(state: ToolcraftState): ToolcraftState {
     return state;
   }
 
-  const next = applyToolcraftHistoryPatch(state, patch.before);
+  const next = applyToolcraftHistoryPatch(state, patch, "before");
 
   return {
     ...state,
+    controlRanges: next.controlRanges,
     canvas: next.canvas,
+    panels: next.panels,
     history: {
       redo: [...state.history.redo, patch],
       undo: state.history.undo.slice(0, -1),
@@ -156,11 +229,13 @@ export function redoToolcraftHistory(state: ToolcraftState): ToolcraftState {
     return state;
   }
 
-  const next = applyToolcraftHistoryPatch(state, patch.after);
+  const next = applyToolcraftHistoryPatch(state, patch, "after");
 
   return {
     ...state,
+    controlRanges: next.controlRanges,
     canvas: next.canvas,
+    panels: next.panels,
     history: {
       redo: state.history.redo.slice(0, -1),
       undo: [...state.history.undo, patch],

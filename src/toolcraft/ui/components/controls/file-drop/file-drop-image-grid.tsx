@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeInteractionHostProps } from "../../primitives/sanitize-composed-host-props";
 import * as React from "react";
 import {
   closestCenter,
@@ -12,35 +13,35 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { XIcon } from "@phosphor-icons/react";
+import { DotsSixVerticalIcon, XIcon } from "@phosphor-icons/react";
 
 import { cn } from "../../../lib/utils";
 import { Button } from "../../primitives";
 import {
   FileDropPlusGlyph,
   getImageTransformStyle,
-} from "./file-drop-model";
-import type { FileDropPreview, FileDropPreviewEntry } from "./file-drop-types";
+} from "./file-drop-presentation";
+import type {
+  FileDropPresentationEntry,
+  FileDropPresentationItem,
+} from "./file-drop-types";
 
 type SortablePreviewTileProps = {
-  index: number;
+  entry: FileDropPresentationEntry;
   isSortable: boolean;
-  item: FileDropPreview;
-  itemKey: string;
-  onPreviewRemove?: (preview: FileDropPreview, index: number) => void;
+  onItemRemove?: (item: FileDropPresentationItem, index: number) => void;
   onPreviewSelect?: (itemKey: string) => void;
   selected?: boolean;
 };
 
 function SortablePreviewTile({
-  index,
+  entry,
   isSortable,
-  item,
-  itemKey,
-  onPreviewRemove,
+  onItemRemove,
   onPreviewSelect,
   selected = false,
 }: SortablePreviewTileProps): React.JSX.Element {
+  const { item, key: itemKey, sourceIndex } = entry;
   const { attributes, isDragging, listeners, setNodeRef, transform, transition } =
     useSortable({
       disabled: !isSortable,
@@ -57,13 +58,24 @@ function SortablePreviewTile({
     transform: sortableTransform ? CSS.Transform.toString(sortableTransform) : undefined,
     transition,
   };
+  const image = (
+    <img
+      alt={item.alt ?? item.fileName}
+      className="size-full object-cover"
+      draggable={false}
+      height={item.size?.height}
+      src={item.previewSrc}
+      style={getImageTransformStyle(item.transform)}
+      width={item.size?.width}
+    />
+  );
 
   return (
     <div
       className={cn(
         "relative aspect-square min-w-0 overflow-hidden rounded-[calc(var(--radius-lg)-4px)] bg-[color:color-mix(in_oklab,var(--foreground)_6%,transparent)] transition-[transform,box-shadow,opacity,border-color] duration-180 ease-out motion-reduce:transition-none",
         isSortable &&
-          "cursor-grab touch-none select-none will-change-transform hover:shadow-[0_8px_18px_color-mix(in_oklab,var(--background)_30%,transparent)]",
+          "will-change-transform hover:shadow-[0_8px_18px_color-mix(in_oklab,var(--background)_30%,transparent)]",
         selected &&
           "ring-2 ring-[color:color-mix(in_oklab,var(--link)_72%,transparent)] ring-offset-2 ring-offset-[color:var(--background)]",
         isDragging &&
@@ -73,40 +85,63 @@ function SortablePreviewTile({
       data-preview-dragging={isDragging ? "true" : undefined}
       data-selected={selected ? "true" : undefined}
       data-slot="file-upload-preview-item"
-      onClick={(event) => {
-        event.stopPropagation();
-        onPreviewSelect?.(itemKey);
-      }}
       ref={setNodeRef}
       style={style}
-      {...(isSortable ? attributes : {})}
-      {...(isSortable ? listeners : {})}
     >
-      <img
-        alt={item.alt ?? ""}
-        className="size-full object-cover"
-        draggable={false}
-        height={item.size?.height}
-        src={item.src}
-        style={getImageTransformStyle(item.transform)}
-        width={item.size?.width}
-      />
-      {onPreviewRemove ? (
+      {onPreviewSelect ? (
+        <button
+          aria-label={`Select ${item.alt ?? item.fileName}`}
+          aria-pressed={selected}
+          className="absolute inset-0 block size-full border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-inset"
+          data-slot="file-upload-preview-select"
+          onClick={() => {
+            onPreviewSelect(itemKey);
+          }}
+          type="button"
+        >
+          {image}
+        </button>
+      ) : (
+        <div className="absolute inset-0 size-full">
+          {image}
+        </div>
+      )}
+      {isSortable ? (
+        <button
+          aria-label={`Reorder ${item.alt ?? item.fileName}`}
+          className="absolute top-0.5 left-0.5 z-[1] flex size-[22px] cursor-grab touch-none items-center justify-center rounded-sm border-0 bg-[color:color-mix(in_oklab,var(--background)_62%,transparent)] p-0 text-[color:color-mix(in_oklab,var(--foreground)_70%,transparent)] backdrop-blur-sm active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
+          {...sanitizeInteractionHostProps({
+            ...attributes,
+            ...listeners,
+          })}
+          type="button"
+          data-slot="file-upload-preview-reorder"
+          role={undefined}
+        >
+          <DotsSixVerticalIcon
+            aria-hidden="true"
+            className="size-3.5"
+            stroke="currentColor"
+            strokeWidth={12}
+            weight="regular"
+          />
+        </button>
+      ) : null}
+      {onItemRemove ? (
         <Button
-          aria-label={`Remove ${item.alt ?? "image"}`}
-          className="absolute top-0.5 right-0.5"
-          onClick={(event) => {
-            event.stopPropagation();
-            onPreviewRemove(item, index);
+          aria-label={`Remove ${item.alt ?? item.fileName}`}
+          className="absolute top-[0.75px] right-[0.75px]"
+          onClick={() => {
+            onItemRemove(item, sourceIndex);
           }}
           onPointerDown={(event) => {
             event.stopPropagation();
           }}
-          size="icon-sm"
+          size="icon-xxs"
           type="button"
           variant="ghost"
         >
-          <XIcon className="drop-shadow-[0_2px_1px_color-mix(in_oklab,var(--background)_80%,transparent)]" />
+          <XIcon className="size-3 drop-shadow-[0_2px_1px_#000]" weight="bold" />
         </Button>
       ) : null}
     </div>
@@ -117,9 +152,9 @@ type FileDropImageGridProps = {
   isSortable: boolean;
   onAddImages: () => void;
   onDragEnd: (event: DragEndEvent) => void;
-  onPreviewRemove?: (preview: FileDropPreview, index: number) => void;
-  onPreviewSelect: (itemKey: string) => void;
-  previewEntries: readonly FileDropPreviewEntry[];
+  onItemRemove?: (item: FileDropPresentationItem, index: number) => void;
+  onPreviewSelect?: (itemKey: string) => void;
+  previewEntries: readonly FileDropPresentationEntry[];
   previewKeys: string[];
   selectedPreviewKey: string | null;
   sensors: React.ComponentProps<typeof DndContext>["sensors"];
@@ -129,7 +164,7 @@ export function FileDropImageGrid({
   isSortable,
   onAddImages,
   onDragEnd,
-  onPreviewRemove,
+  onItemRemove,
   onPreviewSelect,
   previewEntries,
   previewKeys,
@@ -144,32 +179,31 @@ export function FileDropImageGrid({
         sensors={sensors}
       >
         <SortableContext items={previewKeys} strategy={rectSortingStrategy}>
-          {previewEntries.map(({ item, key }, index) => (
+          {previewEntries.map((entry) => (
             <SortablePreviewTile
-              index={index}
+              entry={entry}
               isSortable={isSortable}
-              item={item}
-              itemKey={key}
-              key={key}
-              onPreviewRemove={onPreviewRemove}
+              key={entry.key}
+              onItemRemove={onItemRemove}
               onPreviewSelect={onPreviewSelect}
-              selected={selectedPreviewKey === key}
+              selected={selectedPreviewKey === entry.key}
             />
           ))}
         </SortableContext>
       </DndContext>
-      <button
+      <Button
         aria-label="Add image files"
-        className="flex aspect-square min-w-0 items-center justify-center rounded-[calc(var(--radius-lg)-4px)] border border-[color:color-mix(in_oklab,var(--border)_5%,transparent)] bg-[color:color-mix(in_oklab,var(--foreground)_4%,transparent)] text-[color:color-mix(in_oklab,var(--foreground)_65%,transparent)] transition-[background-color,border-color,color] duration-150 ease-out hover:border-[color:color-mix(in_oklab,var(--border)_8%,transparent)] hover:bg-[color:color-mix(in_oklab,var(--foreground)_9%,transparent)] hover:text-[color:var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)]"
-        data-slot="file-upload-add-preview"
+        className="aspect-square h-auto w-full"
         onClick={(event) => {
           event.stopPropagation();
           onAddImages();
         }}
+        size="icon"
         type="button"
+        variant="outline"
       >
         <FileDropPlusGlyph className="size-3.5" />
-      </button>
+      </Button>
     </div>
   );
 }

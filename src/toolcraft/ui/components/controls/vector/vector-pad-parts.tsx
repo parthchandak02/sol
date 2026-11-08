@@ -6,8 +6,10 @@ import { cn } from "../../../lib/utils";
 
 export function VectorPadGuides({
   isDragging,
+  lockedAxes,
 }: {
   isDragging: boolean;
+  lockedAxes: Readonly<{ x: boolean; y: boolean }>;
 }): React.JSX.Element {
   const motionClass = isDragging
     ? "transition-none"
@@ -18,22 +20,28 @@ export function VectorPadGuides({
 
   return (
     <>
-      <span
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute inset-x-0 z-10 h-px bg-[linear-gradient(90deg,transparent,color-mix(in_oklab,var(--foreground)_20%,transparent),transparent)]",
-          motionClass,
-        )}
-        style={{ top: "var(--xy-pad-display-y)" }}
-      />
-      <span
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-[linear-gradient(180deg,transparent,color-mix(in_oklab,var(--foreground)_20%,transparent),transparent)]",
-          verticalMotionClass,
-        )}
-        style={{ left: "var(--xy-pad-display-x)" }}
-      />
+      {!lockedAxes.x && (
+        <span
+          aria-hidden="true"
+          data-vector-pad-axis="x"
+          className={cn(
+            "pointer-events-none absolute inset-x-0 z-10 h-px bg-[linear-gradient(90deg,transparent,color-mix(in_oklab,var(--foreground)_20%,transparent),transparent)]",
+            motionClass,
+          )}
+          style={{ top: "var(--xy-pad-display-y)" }}
+        />
+      )}
+      {!lockedAxes.y && (
+        <span
+          aria-hidden="true"
+          data-vector-pad-axis="y"
+          className={cn(
+            "pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-[linear-gradient(180deg,transparent,color-mix(in_oklab,var(--foreground)_20%,transparent),transparent)]",
+            verticalMotionClass,
+          )}
+          style={{ left: "var(--xy-pad-display-x)" }}
+        />
+      )}
     </>
   );
 }

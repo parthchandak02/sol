@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { appSchema } from "../app-schema";
-import { appTransferMode } from "../app-acceptance-data";
+import { getToolcraftPersistenceCoverageResult } from "./runtime-coverage";
+import {
+  appProductReadiness,
+  appTransferMode,
+} from "../app-acceptance-data";
 import {
   getBlockingToolcraftAcceptanceMessages,
   runToolcraftAcceptanceValidators,
@@ -13,6 +17,11 @@ const context: ToolcraftAcceptanceValidationContext = {
   controls: [],
   hasVideoExportAction: false,
   layersEnabled: false,
+  persistence: getToolcraftPersistenceCoverageResult({
+    acceptance: [],
+    schema: appSchema,
+  }),
+  productReadiness: appProductReadiness,
   schema: appSchema,
   sectionInventory: [],
   timelineMode: null,

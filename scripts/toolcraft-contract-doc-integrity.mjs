@@ -2,8 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const contractDocsRoot = "docs/toolcraft";
-const editableContractDocPaths = new Set([
+const requiredEditableContractDocPaths = new Set([
   "docs/toolcraft/agent-worklog.md",
+]);
+const optionalEditableContractDocPaths = new Set([
+  "docs/toolcraft/workflow-observation.md",
 ]);
 
 async function collectRelativeEntries(rootDir, relativeRoot) {
@@ -49,14 +52,15 @@ export async function getToolcraftContractDocIntegrityFailures({
     actualEntries.map(({ relativePath }) => relativePath),
   );
   const allowedPaths = new Set([
-    ...editableContractDocPaths,
+    ...requiredEditableContractDocPaths,
+    ...optionalEditableContractDocPaths,
     ...[...protectedRelativePaths].filter((relativePath) =>
       relativePath.startsWith(`${contractDocsRoot}/`),
     ),
   ]);
   const failures = [];
 
-  for (const relativePath of editableContractDocPaths) {
+  for (const relativePath of requiredEditableContractDocPaths) {
     if (!actualPaths.has(relativePath)) {
       failures.push(`deleted ${relativePath}`);
     }

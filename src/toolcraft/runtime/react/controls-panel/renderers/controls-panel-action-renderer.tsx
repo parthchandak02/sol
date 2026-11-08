@@ -11,6 +11,21 @@ import type {
   ToolcraftActionSchema,
   ToolcraftControlSchema,
 } from "../../../schema/types";
+import { isToolcraftArtifactExportAction } from "../../../schema/artifact-export-actions";
+import {
+  readToolcraftStillExportFormat,
+  readToolcraftVideoExportFormat,
+  toolcraftImageExportFormatTarget,
+  toolcraftVideoExportFormatTarget,
+} from "../../../export/artifact-export-settings";
+import {
+  getToolcraftVisibleExportActions,
+  resolveToolcraftStillExportAction,
+} from "../../../export/still-export-actions";
+import { useToolcraftStore } from "../../app-shell/toolcraft-store-context";
+import type { ReadonlyToolcraftState } from "../../../state/readonly-state";
+import type { ToolcraftStoreDependency } from "../../../state/toolcraft-external-store-dependencies";
+import { useToolcraftDependencySelector } from "../../app-shell/toolcraft-selectors";
 
 export type ActionControlRunAction = (
   action: ToolcraftActionSchema,
@@ -56,8 +71,93 @@ function getActionLabel(action: ToolcraftActionSchema): string {
   return action.label ?? action.value;
 }
 
+function getDisplayActionLabel(
+  action: ToolcraftActionSchema,
+  state: ReadonlyToolcraftState,
+): string {
+  switch (action.role) {
+    case "export-image": {
+      const format = readToolcraftStillExportFormat(state);
+      return format ? `Export ${format.toUpperCase()}` : "Export Image";
+    }
+    case "export-video": {
+      const format = readToolcraftVideoExportFormat(state);
+      return format
+        ? `Export ${format === "webm" ? "WebM" : "MP4"}`
+        : "Export Video";
+    }
+    default:
+      return getActionLabel(action);
+  }
+}
+
+function actionLabelsEqual(
+  previous: readonly string[],
+  next: readonly string[],
+): boolean {
+  return previous.length === next.length &&
+    previous.every((label, index) => label === next[index]);
+}
+
+function RuntimePanelActions({
+  actions,
+  runAction,
+}: {
+  actions: readonly ToolcraftActionSchema[];
+  runAction: ActionControlRunAction;
+}): React.JSX.Element {
+  const store = useToolcraftStore();
+  const visibleActions = React.useMemo(
+    () => getToolcraftVisibleExportActions(actions),
+    [actions],
+  );
+  const dependencies = React.useMemo<ToolcraftStoreDependency[]>(() => {
+    const targets = new Set<string>();
+    for (const action of actions) {
+      if (action.role === "export-image") {
+        targets.add(toolcraftImageExportFormatTarget);
+      }
+      if (action.role === "export-video") {
+        targets.add(toolcraftVideoExportFormatTarget);
+      }
+    }
+    return [...targets].map((target) => ({ kind: "value", target }));
+  }, [actions]);
+  const labels = useToolcraftDependencySelector(
+    React.useCallback(
+      (state: ReadonlyToolcraftState) =>
+        visibleActions.map((action) => getDisplayActionLabel(action, state)),
+      [visibleActions],
+    ),
+    actionLabelsEqual,
+    dependencies,
+  );
+
+  return (
+    <PanelActions
+      actions={visibleActions.map((action, index) => ({
+        icon: getPanelActionIcon(action),
+        name: labels[index]!,
+        value: action.value,
+        variant: getPanelActionButtonVariant(action.variant),
+      }))}
+      onAction={(actionValue) => {
+        const action = actions.find((item) => item.value === actionValue);
+        if (action) {
+          const selectedAction = resolveToolcraftStillExportAction(
+            action,
+            actions,
+            readToolcraftStillExportFormat(store.getState()),
+          );
+          runAction(selectedAction, { trackFooterPending: true });
+        }
+      }}
+    />
+  );
+}
+
 function isExportPanelAction(action: ToolcraftActionSchema): boolean {
-  if (action.role === "export-image" || action.role === "export-video") {
+  if (isToolcraftArtifactExportAction(action)) {
     return true;
   }
 
@@ -112,21 +212,10 @@ export function renderActionControl({
       const actions = asActionSchemas(control.actions);
 
       return (
-        <PanelActions
-          actions={actions.map((action) => ({
-            icon: getPanelActionIcon(action),
-            name: getActionLabel(action),
-            value: action.value,
-            variant: getPanelActionButtonVariant(action.variant),
-          }))}
+        <RuntimePanelActions
+          actions={actions}
           key={id}
-          onAction={(actionValue) => {
-            const action = actions.find((item) => item.value === actionValue);
-
-            if (action) {
-              runAction(action, { trackFooterPending: true });
-            }
-          }}
+          runAction={runAction}
         />
       );
     }

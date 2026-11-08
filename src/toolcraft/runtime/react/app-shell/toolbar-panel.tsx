@@ -11,11 +11,14 @@ import {
 } from "@/toolcraft/ui";
 import { Moon, Redo2, Sun, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 
-import type { ToolcraftPanelState } from "../../state/types";
+import type { ToolcraftPanelState, ToolcraftState } from "../../state/types";
 import { PanelContainer } from "../panel-host/panel-host";
+import { useToolcraftPanelBinding } from "../panel-host/use-toolcraft-panel-binding";
 import type { PanelPlacement, PanelStateChange } from "../panel-host/panel-host-types";
 import { useToolcraftTheme } from "./theme-runtime";
-import { useToolcraft } from "./use-toolcraft";
+import { useToolcraftCommittedSelector } from "./toolcraft-selectors";
+import { useToolcraftDispatch } from "./use-toolcraft";
+import { useToolcraftHistory, requestToolcraftHistory } from './history-scope';
 
 export type ToolbarPanelProps = {
   className?: string;
@@ -36,6 +39,8 @@ type ToolbarIconButtonProps = {
 
 const toolbarIconButtonSize = "icon";
 const desktopToolbarTightButtonGapClassName = "-mr-px";
+const selectToolbar = (state: ToolcraftState) => state.schema.toolbar;
+const selectCommittedZoom = (state: ToolcraftState) => state.canvas.zoom;
 
 function cn(...classNames: Array<string | false | null | undefined>): string {
   return classNames.filter(Boolean).join(" ");
@@ -100,16 +105,29 @@ export function ToolbarPanel({
   onPanelStateChange,
   panelPlacement,
   panelState,
-}: ToolbarPanelProps): React.JSX.Element {
-  const { dispatch, state } = useToolcraft();
+}: ToolbarPanelProps): React.JSX.Element | null {
+  const dispatch = useToolcraftDispatch();
+  const panelBinding = useToolcraftPanelBinding({
+    onPanelStateChange,
+    panelId: "toolbar",
+    panelState,
+  });
+  const resolvedPanelState = panelBinding.panelState;
   const { resolvedTheme, toggleResolvedTheme } = useToolcraftTheme();
   const nextTheme = resolvedTheme === "dark" ? "light" : "dark";
-  const canUndo = state.history.undo.length > 0;
-  const canRedo = state.history.redo.length > 0;
-  const historyEnabled = state.schema.toolbar.history;
-  const radarEnabled = state.schema.toolbar.radar;
-  const themeEnabled = state.schema.toolbar.theme;
-  const zoomEnabled = state.schema.toolbar.zoom;
+  const { port: history, state: historyState } = useToolcraftHistory();
+  const canUndo = historyState.available && historyState.canUndo;
+  const canRedo = historyState.available && historyState.canRedo;
+  const toolbar = useToolcraftCommittedSelector(selectToolbar);
+  const zoom = useToolcraftCommittedSelector(selectCommittedZoom);
+  const historyEnabled = toolbar.history;
+  const radarEnabled = toolbar.radar;
+  const themeEnabled = toolbar.theme;
+  const zoomEnabled = toolbar.zoom;
+
+  if (resolvedPanelState.hidden) {
+    return null;
+  }
 
   const toolbarSurface = (
     <PanelSurface
@@ -126,7 +144,7 @@ export function ToolbarPanel({
             className={desktopToolbarTightButtonGapClassName}
             disabled={!canUndo}
             label="Undo"
-            onClick={() => dispatch({ type: "history.undo" })}
+            onClick={() => requestToolcraftHistory(history, 'undo')}
           >
             <Undo2 />
           </ToolbarIconButton>
@@ -134,7 +152,7 @@ export function ToolbarPanel({
             className={desktopToolbarTightButtonGapClassName}
             disabled={!canRedo}
             label="Redo"
-            onClick={() => dispatch({ type: "history.redo" })}
+            onClick={() => requestToolcraftHistory(history, 'redo')}
           >
             <Redo2 />
           </ToolbarIconButton>
@@ -158,7 +176,7 @@ export function ToolbarPanel({
               dispatch({ type: "canvas.zoomReset" });
             }}
           >
-            {state.canvas.zoom}%
+            {zoom}%
           </span>
           <ToolbarIconButton
             label="Zoom in"
@@ -194,8 +212,8 @@ export function ToolbarPanel({
 
   return (
     <PanelContainer
-      onPanelStateChange={onPanelStateChange}
-      panelState={panelState}
+      onPanelStateChange={panelBinding.onPanelStateChange}
+      panelState={resolvedPanelState}
       panelType="toolbar"
       placement={panelPlacement ?? (framed ? "frame" : "surface")}
     >

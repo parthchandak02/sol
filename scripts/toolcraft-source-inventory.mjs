@@ -1,26 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { toolcraftModuleExtensions } from "./toolcraft-product-dependency-resolution.mjs";
+
 export const toolcraftSourceExtensions = new Set([
-  ".cjs",
+  ...toolcraftModuleExtensions,
   ".css",
-  ".cts",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".mts",
-  ".ts",
-  ".tsx",
 ]);
 
 const defaultGeneratedFilePatterns = [/\/route-tree\.gen\.ts$/u];
 const defaultTestFilePatterns = [
-  /(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/u,
+  /(?:^|\/)[^/]+\.(?:test|spec|story|stories)\.[cm]?[jt]sx?$/u,
 ];
 const defaultTestSupportPatterns = [
   /^e2e\//u,
-  /(?:^|\/)test-evidence\//u,
-  /(?:^|\/)[^/]*(?:test-utils|fixtures)\.[cm]?[jt]sx?$/u,
+  /(?:^|\/)(?:__mocks__|__tests__|fixtures|story|stories|support|test-evidence|test-support|tests?)(?:\/|$)/u,
+  /(?:^|\/)[^/]*(?:[.-](?:fixtures?|support|test-support|test-utils))\.[cm]?[jt]sx?$/u,
 ];
 
 function toPosixPath(value) {
@@ -59,7 +54,8 @@ export function classifyToolcraftSourcePath(
       toPosixPath(filePath).replace(/^\.\//u, ""),
     ),
   );
-  const normalizedFrameworkPrefixes = frameworkPathPrefixes.map(normalizePrefix);
+  const normalizedFrameworkPrefixes =
+    frameworkPathPrefixes.map(normalizePrefix);
 
   const owner = protectedPathSet.has(normalizedPath)
     ? "platform"
@@ -83,6 +79,7 @@ export function collectToolcraftSourceInventorySync({
   frameworkPathPrefixes = ["src/toolcraft/"],
   generatedFilePatterns = defaultGeneratedFilePatterns,
   ignoredFilePatterns = [],
+  includeResourceFiles = false,
   protectedFilePaths = [],
   rootDir,
   sourceExtensions = toolcraftSourceExtensions,
@@ -131,7 +128,11 @@ export function collectToolcraftSourceInventorySync({
         continue;
       }
 
-      if (!entry.isFile() || !sourceExtensions.has(path.extname(entry.name))) {
+      if (
+        !entry.isFile() ||
+        (!includeResourceFiles &&
+          !sourceExtensions.has(path.extname(entry.name)))
+      ) {
         continue;
       }
 
@@ -184,4 +185,114 @@ export function collectToolcraftSourceInventorySync({
 
 export async function collectToolcraftSourceInventory(options) {
   return collectToolcraftSourceInventorySync(options);
+}
+
+function createResourceRootEscapeError(resourcePath, rootDir, reason) {
+  const error = new Error(
+    `Explicit resource path "${resourcePath}" ${reason} "${rootDir}".`,
+  );
+  error.code = "TOOLCRAFT_RESOURCE_ROOT_ESCAPE";
+  return error;
+}
+
+function pathEscapesRoot(rootPath, targetPath) {
+  const relativePath = path.relative(rootPath, targetPath);
+  return (
+    relativePath === ".." ||
+    relativePath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativePath)
+  );
+}
+
+function resolveExistingResourceAncestor(targetPath) {
+  let candidatePath = targetPath;
+  for (;;) {
+    try {
+      return fs.realpathSync(candidatePath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      const parentPath = path.dirname(candidatePath);
+      if (parentPath === candidatePath) throw error;
+      candidatePath = parentPath;
+    }
+  }
+}
+
+export function resolveToolcraftRootResourcePath(resourcePath, rootDir) {
+  if (
+    typeof resourcePath !== "string" ||
+    path.isAbsolute(resourcePath) ||
+    path.posix.isAbsolute(resourcePath) ||
+    path.win32.isAbsolute(resourcePath)
+  ) {
+    throw createResourceRootEscapeError(
+      resourcePath,
+      rootDir,
+      "must be root-relative and stay within the configured root boundary",
+    );
+  }
+  const normalizedPath = path.posix.normalize(
+    resourcePath.replaceAll("\\", "/"),
+  );
+  const absolutePath = path.resolve(rootDir, ...normalizedPath.split("/"));
+  if (
+    normalizedPath === ".." ||
+    normalizedPath.startsWith("../") ||
+    pathEscapesRoot(path.resolve(rootDir), absolutePath)
+  ) {
+    throw createResourceRootEscapeError(
+      resourcePath,
+      rootDir,
+      "is outside the configured root boundary",
+    );
+  }
+  const rootRealPath = fs.realpathSync(rootDir);
+  const resourceBoundaryPath = resolveExistingResourceAncestor(absolutePath);
+  if (pathEscapesRoot(rootRealPath, resourceBoundaryPath)) {
+    throw createResourceRootEscapeError(
+      resourcePath,
+      rootDir,
+      "resolves outside the root boundary for configured root",
+    );
+  }
+  return absolutePath;
+}
+
+export function createCanonicalGraphEntries({
+  entries,
+  explicitResourcePaths = [],
+  rootDir,
+}) {
+  const entriesByRepoPath = new Map(
+    entries.map((entry) => [
+      toPosixPath(entry.repoPath).replace(/^\.\//u, ""),
+      entry,
+    ]),
+  );
+  for (const resourcePath of explicitResourcePaths) {
+    const absolutePath = resolveToolcraftRootResourcePath(
+      resourcePath,
+      rootDir,
+    );
+    const repoPath = toPosixPath(path.relative(rootDir, absolutePath));
+    if (entriesByRepoPath.has(repoPath)) continue;
+
+    let resourceStat;
+    try {
+      resourceStat = fs.lstatSync(absolutePath);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    if (!resourceStat.isFile() || resourceStat.isSymbolicLink()) continue;
+    entriesByRepoPath.set(repoPath, {
+      absolutePath,
+      repoPath,
+      ...classifyToolcraftSourcePath(repoPath),
+    });
+  }
+
+  return [...entriesByRepoPath.values()].sort((left, right) =>
+    compareCodeUnits(left.repoPath, right.repoPath),
+  );
 }

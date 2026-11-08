@@ -1,19 +1,8 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-import type { ToolcraftPerformanceConfig } from "@/toolcraft/runtime";
-
-import {
-  expectToolcraftPerformanceBudget,
-  getToolcraftPerformanceStressValue,
-} from "./performance-budget-helpers";
 import { attachToolcraftBrowserRuntimeEvidence } from "./browser-runtime-evidence";
 import { getToolcraftControlFieldByTarget } from "./browser-control-target-helpers";
 import { getToolcraftFieldByLabel } from "./performance-control-layout-helpers";
-import { measureToolcraftInteraction } from "./performance-interaction-measurement";
-import type {
-  ToolcraftInteractionOptions,
-  ToolcraftInteractionResult,
-} from "./performance-measurement-evidence";
 
 async function dragToolcraftSliderInField(
   page: Page,
@@ -62,9 +51,9 @@ export async function dragToolcraftSliderByLabel(
   page: Page,
   label: string,
   targetRatio: number,
-  options: { scenarioId?: string } = {},
+  options: { pathId?: string } = {},
 ): Promise<void> {
-  if (options.scenarioId) {
+  if (options.pathId) {
     throw new Error(
       "Performance slider evidence must use dragToolcraftSliderByTarget(schemaTarget), not a visible label.",
     );
@@ -77,14 +66,14 @@ export async function dragToolcraftSliderByTarget(
   page: Page,
   target: string,
   targetRatio: number,
-  options: { scenarioId?: string } = {},
+  options: { pathId?: string } = {},
 ): Promise<void> {
   const field = await getToolcraftControlFieldByTarget(page, target);
   await dragToolcraftSliderInField(page, field, target, targetRatio);
-  if (options.scenarioId) {
+  if (options.pathId) {
     await attachToolcraftBrowserRuntimeEvidence({
       evidenceType: "performance-control-drag",
-      requirementId: options.scenarioId,
+      requirementId: options.pathId,
       target,
     });
   }
@@ -94,7 +83,7 @@ export async function dragToolcraftSliderToValue(
   page: Page,
   label: string,
   value: number,
-  options: { scenarioId?: string } = {},
+  options: { pathId?: string } = {},
 ): Promise<void> {
   const field = await getToolcraftFieldByLabel(page, label);
   const slider = field.getByRole("slider").first();
@@ -134,7 +123,7 @@ export async function dragToolcraftSliderTargetToValue(
   page: Page,
   target: string,
   value: number,
-  options: { scenarioId?: string } = {},
+  options: { pathId?: string } = {},
 ): Promise<void> {
   const field = await getToolcraftControlFieldByTarget(page, target);
   const slider = field.getByRole("slider").first();
@@ -163,109 +152,4 @@ export async function dragToolcraftSliderTargetToValue(
     Math.min(1, Math.max(0, ratio)),
     options,
   );
-}
-
-export async function dragToolcraftSliderToPerformanceStressValue(
-  page: Page,
-  label: string,
-  config: ToolcraftPerformanceConfig,
-  scenarioId: string,
-): Promise<void> {
-  const value = getToolcraftPerformanceStressValue(config, scenarioId);
-  const scenario = config.scenarios.find((item) => item.id === scenarioId);
-
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    throw new Error(
-      `Toolcraft performance scenario "${scenarioId}" must provide a numeric stressFixture.value for slider "${label}".`,
-    );
-  }
-  if (!scenario?.target) {
-    throw new Error(
-      `Toolcraft slider performance scenario "${scenarioId}" must declare its schema target.`,
-    );
-  }
-
-  await dragToolcraftSliderTargetToValue(page, scenario.target, value, { scenarioId });
-  const field = await getToolcraftControlFieldByTarget(page, scenario.target);
-  const observedValues = await field.getByRole("slider").evaluateAll((elements) =>
-    elements.map((element) =>
-      Number(
-        element.getAttribute("aria-valuenow") ??
-          (element instanceof HTMLInputElement ? element.value : Number.NaN),
-      ),
-    ),
-  );
-  expect(
-    observedValues.some((observedValue) => Math.abs(observedValue - value) < 0.000_001),
-    `Toolcraft performance scenario "${scenarioId}" must visibly apply stressFixture.value ${value} to slider "${label}".`,
-  ).toBe(true);
-  await attachToolcraftBrowserRuntimeEvidence({
-    evidenceType: "performance-stress-fixture",
-    requirementId: scenarioId,
-    target: scenario.target,
-  });
-}
-
-export async function expectToolcraftDiscreteSliderDragSmoothness(
-  page: Page,
-  label: string,
-  options: ToolcraftInteractionOptions & {
-    expectMarkers?: boolean;
-    maxFrameGapMs?: number;
-    maxInteractionMs?: number;
-    requirementId?: string;
-    target?: string;
-  } = {},
-): Promise<ToolcraftInteractionResult> {
-  const field = options.target
-    ? await getToolcraftControlFieldByTarget(page, options.target)
-    : await getToolcraftFieldByLabel(page, label);
-  const slider = field.locator('[data-slot="slider"][data-variant="discrete"]').first();
-
-  await expect(
-    slider,
-    `Toolcraft discrete slider "${label}" should render the discrete variant.`,
-  ).toBeVisible();
-
-  const markers = field.locator('[data-slot="slider-marker"]');
-  if (options.expectMarkers === false) {
-    await expect(
-      markers,
-      `Toolcraft half-width discrete slider "${label}" should hide over-budget tick markers.`,
-    ).toHaveCount(0);
-  } else {
-    await expect(
-      markers.first(),
-      `Toolcraft discrete slider "${label}" should render tick markers.`,
-    ).toBeVisible();
-  }
-
-  const result = await measureToolcraftInteraction(
-    page,
-    async () => {
-      if (options.target) {
-        await dragToolcraftSliderByTarget(page, options.target, 0.85);
-      } else {
-        await dragToolcraftSliderByLabel(page, label, 0.85);
-      }
-    },
-    options,
-  );
-
-  expectToolcraftPerformanceBudget(result, {
-    maxFrameGapMs: options.maxFrameGapMs ?? 80,
-    maxInteractionMs: options.maxInteractionMs ?? 500,
-  });
-  if (options.requirementId) {
-    if (!options.target) {
-      throw new Error("Discrete-slider runtime evidence requires a schema target.");
-    }
-    await attachToolcraftBrowserRuntimeEvidence({
-      evidenceType: "discrete-slider-layout",
-      requirementId: options.requirementId,
-      target: options.target,
-    });
-  }
-
-  return result;
 }

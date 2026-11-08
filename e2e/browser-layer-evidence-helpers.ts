@@ -6,10 +6,15 @@ import {
   type ToolcraftSemanticEvidenceOptions,
 } from "./browser-acceptance-transition-helpers";
 import { attachToolcraftBrowserRuntimeEvidence } from "./browser-runtime-evidence";
-import type {
-  ToolcraftBrowserAction,
-  ToolcraftBrowserObservation,
+import {
+  getToolcraftBrowserActionTarget,
+  type ToolcraftBrowserAction,
+  type ToolcraftBrowserObservation,
 } from "./browser-proof-session";
+import {
+  expectToolcraftSelectionScopedControl,
+  type ToolcraftSelectionScopedControlOptions,
+} from "./browser-selection-scope-evidence";
 
 export type ToolcraftLayerCollectionObservation = {
   layerIds: readonly string[];
@@ -20,12 +25,6 @@ export type ToolcraftLayerGroupingObservation =
   ToolcraftLayerCollectionObservation & {
     groupSignature: string;
   };
-
-export type ToolcraftLayerSelectedControlObservation = {
-  controlValue: unknown;
-  outputSignature: string;
-  selectedLayerId: string;
-};
 
 export type ToolcraftLayerSelectionObservation = {
   selectedLayerId: string;
@@ -64,6 +63,7 @@ function sorted(values: readonly string[]): string[] {
 }
 
 async function attachLayerEvidence(
+  baseEvidenceType: "media-lifecycle" | "product-observable-change",
   evidenceType:
     | "layer-grouping"
     | "layer-media-lifecycle"
@@ -72,8 +72,31 @@ async function attachLayerEvidence(
     | "layer-selection"
     | "layer-visibility",
   requirementId: string,
+  target: string,
 ): Promise<void> {
-  await attachToolcraftBrowserRuntimeEvidence({ evidenceType, requirementId });
+  await attachToolcraftBrowserRuntimeEvidence({
+    evidenceType: baseEvidenceType,
+    requirementId,
+    target,
+  });
+  await attachToolcraftBrowserRuntimeEvidence({
+    evidenceType,
+    requirementId,
+    target,
+  });
+}
+
+function requireLayerActionTarget(
+  action: ToolcraftBrowserAction,
+  requirementId: string,
+): string {
+  const target = getToolcraftBrowserActionTarget(action)?.trim();
+  if (!target) {
+    throw new Error(
+      `Layer evidence "${requirementId}" requires a target-scoped browser action from proofSession.targetAction(semanticTarget, action) or proofSession.controlAction(schemaTarget, action).`,
+    );
+  }
+  return target;
 }
 
 export async function expectToolcraftLayerSelection(
@@ -82,6 +105,7 @@ export async function expectToolcraftLayerSelection(
   expected: ToolcraftLayerSelectionObservation,
   options: ToolcraftSemanticEvidenceOptions,
 ): Promise<ToolcraftLayerSelectionObservation> {
+  const target = requireLayerActionTarget(action, options.requirementId);
   validateIdentifier(
     expected.selectedLayerId,
     `Layer selection "${options.requirementId}" requires an expected layer id.`,
@@ -95,7 +119,11 @@ export async function expectToolcraftLayerSelection(
       options,
     ),
   );
-  await attachLayerEvidence("layer-selection", options.requirementId);
+  await attachToolcraftBrowserRuntimeEvidence({
+    evidenceType: "layer-selection",
+    requirementId: options.requirementId,
+    target,
+  });
   return after;
 }
 
@@ -105,6 +133,7 @@ export async function expectToolcraftLayerVisibility(
   expected: ToolcraftLayerVisibilityObservation,
   options: ToolcraftSemanticEvidenceOptions,
 ): Promise<ToolcraftLayerVisibilityObservation> {
+  const target = requireLayerActionTarget(action, options.requirementId);
   validateIdentifier(expected.layerId, "Layer visibility requires a layer id.");
   validateIdentifier(
     expected.outputSignature,
@@ -122,7 +151,12 @@ export async function expectToolcraftLayerVisibility(
   expect(before.layerId).toBe(after.layerId);
   expect(before.visible).not.toBe(after.visible);
   expect(before.outputSignature).not.toBe(after.outputSignature);
-  await attachLayerEvidence("layer-visibility", options.requirementId);
+  await attachLayerEvidence(
+    "product-observable-change",
+    "layer-visibility",
+    options.requirementId,
+    target,
+  );
   return after;
 }
 
@@ -132,6 +166,7 @@ export async function expectToolcraftLayerReorder(
   expected: ToolcraftLayerCollectionObservation,
   options: ToolcraftSemanticEvidenceOptions,
 ): Promise<ToolcraftLayerCollectionObservation> {
+  const target = requireLayerActionTarget(action, options.requirementId);
   validateLayerCollection(expected, options.requirementId);
   const { after, before } = await expectToolcraftExpectedOutcomeAfterAction(
     observeOrder,
@@ -146,7 +181,12 @@ export async function expectToolcraftLayerReorder(
   expect(sorted(before.layerIds)).toEqual(sorted(after.layerIds));
   expect(before.layerIds).not.toEqual(after.layerIds);
   expect(before.outputSignature).not.toBe(after.outputSignature);
-  await attachLayerEvidence("layer-reorder", options.requirementId);
+  await attachLayerEvidence(
+    "product-observable-change",
+    "layer-reorder",
+    options.requirementId,
+    target,
+  );
   return after;
 }
 
@@ -156,6 +196,7 @@ export async function expectToolcraftLayerGrouping(
   expected: ToolcraftLayerGroupingObservation,
   options: ToolcraftSemanticEvidenceOptions,
 ): Promise<ToolcraftLayerGroupingObservation> {
+  const target = requireLayerActionTarget(action, options.requirementId);
   validateLayerCollection(expected, options.requirementId);
   validateIdentifier(expected.groupSignature, "Layer grouping requires group semantics.");
   const { after, before } = await expectToolcraftExpectedOutcomeAfterAction(
@@ -171,38 +212,27 @@ export async function expectToolcraftLayerGrouping(
   expect(sorted(before.layerIds)).toEqual(sorted(after.layerIds));
   expect(before.groupSignature).not.toBe(after.groupSignature);
   expect(before.outputSignature).not.toBe(after.outputSignature);
-  await attachLayerEvidence("layer-grouping", options.requirementId);
+  await attachLayerEvidence(
+    "product-observable-change",
+    "layer-grouping",
+    options.requirementId,
+    target,
+  );
   return after;
 }
 
+export type ToolcraftSelectedLayerControlOptions =
+  ToolcraftSelectionScopedControlOptions;
+
 export async function expectToolcraftSelectedLayerControl(
-  observeControl: ToolcraftBrowserObservation<ToolcraftLayerSelectedControlObservation>,
-  action: ToolcraftBrowserAction,
-  expected: ToolcraftLayerSelectedControlObservation,
-  options: ToolcraftSemanticEvidenceOptions,
-): Promise<ToolcraftLayerSelectedControlObservation> {
-  validateIdentifier(expected.selectedLayerId, "Selected-layer control requires a layer id.");
-  validateIdentifier(
-    expected.outputSignature,
-    "Selected-layer control requires product-output semantics.",
-  );
-  const { after, before } = await expectToolcraftExpectedOutcomeAfterAction(
-    observeControl,
-    action,
-    expected,
-    createToolcraftSemanticTransitionOptions(
-      `Selected-layer control "${options.requirementId}" should edit the selected layer output.`,
-      options,
-    ),
-  );
-  expect(before.selectedLayerId).toBe(after.selectedLayerId);
-  expect(before.controlValue).not.toEqual(after.controlValue);
-  expect(before.outputSignature).not.toBe(after.outputSignature);
-  await attachLayerEvidence(
-    "layer-selected-layer-controls",
-    options.requirementId,
-  );
-  return after;
+  options: ToolcraftSelectedLayerControlOptions,
+): Promise<void> {
+  await expectToolcraftSelectionScopedControl(options);
+  await attachToolcraftBrowserRuntimeEvidence({
+    evidenceType: "layer-selected-layer-controls",
+    requirementId: options.requirementId,
+    target: options.propertyTarget,
+  });
 }
 
 export async function expectToolcraftLayerMediaLifecycle(
@@ -211,6 +241,7 @@ export async function expectToolcraftLayerMediaLifecycle(
   expected: ToolcraftLayerCollectionObservation,
   options: ToolcraftSemanticEvidenceOptions,
 ): Promise<ToolcraftLayerCollectionObservation> {
+  const target = requireLayerActionTarget(action, options.requirementId);
   validateLayerCollection(expected, options.requirementId);
   const { after, before } = await expectToolcraftExpectedOutcomeAfterAction(
     observeLayers,
@@ -224,6 +255,11 @@ export async function expectToolcraftLayerMediaLifecycle(
   validateLayerCollection(before, options.requirementId);
   expect(before.layerIds).not.toEqual(after.layerIds);
   expect(before.outputSignature).not.toBe(after.outputSignature);
-  await attachLayerEvidence("layer-media-lifecycle", options.requirementId);
+  await attachLayerEvidence(
+    "media-lifecycle",
+    "layer-media-lifecycle",
+    options.requirementId,
+    target,
+  );
   return after;
 }

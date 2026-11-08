@@ -1,7 +1,6 @@
-import type {
-  ResolvedToolcraftAppSchema,
-  ToolcraftControlSchema,
-} from "../schema/types";
+import type { ToolcraftControlSchema } from "../schema/types";
+import type { ResolvedToolcraftAppSchema } from "../schema/resolved-app-schema";
+import { TOOLCRAFT_ARTIFACT_EXPORT_ACTION_ROLES } from "../schema/artifact-export-actions";
 import type { ToolcraftPerformanceValueSet } from "./performance-types";
 
 export function getAllSchemaControls(
@@ -12,7 +11,9 @@ export function getAllSchemaControls(
   );
 }
 
-export function getVisiblePerformanceControlTargets(schema: ResolvedToolcraftAppSchema): string[] {
+export function getVisiblePerformanceControlTargets(
+  schema: ResolvedToolcraftAppSchema,
+): string[] {
   return getAllSchemaControls(schema)
     .filter((control) => control.type !== "panelActions")
     .map((control) => control.target);
@@ -58,7 +59,9 @@ export function getToolcraftControlPerformanceValues(
   }
 
   if (
-    (control.type === "select" || control.type === "segmented") &&
+    (control.type === "select" ||
+      control.type === "segmented" ||
+      control.type === "tabs") &&
     control.options &&
     control.options.length > 0
   ) {
@@ -120,14 +123,16 @@ function normalizeActionReference(value: string | undefined): string {
 const outputDeliveryActionRoles = new Set([
   "copy-output",
   "download-output",
-  "export-image",
-  "export-video",
+  ...TOOLCRAFT_ARTIFACT_EXPORT_ACTION_ROLES,
 ]);
 
 function isOutputDeliveryAction(
   action: NonNullable<ToolcraftControlSchema["actions"]>[number],
 ): boolean {
-  return typeof action !== "string" && outputDeliveryActionRoles.has(action.role ?? "");
+  return (
+    typeof action !== "string" &&
+    outputDeliveryActionRoles.has(action.role ?? "")
+  );
 }
 
 function getOutputDeliveryActions(
@@ -142,7 +147,9 @@ function getOutputDeliveryActions(
   });
 }
 
-export function hasOutputDeliveryAction(schema: ResolvedToolcraftAppSchema): boolean {
+export function hasOutputDeliveryAction(
+  schema: ResolvedToolcraftAppSchema,
+): boolean {
   return getOutputDeliveryActions(schema).length > 0;
 }
 
@@ -172,8 +179,13 @@ export function hasOutputDeliveryActionReference(
   );
 }
 
-export function hasKeyframeTimeline(schema: ResolvedToolcraftAppSchema): boolean {
-  return schema.panels.timeline?.enabled === true && schema.panels.timeline.mode === "keyframes";
+export function hasKeyframeTimeline(
+  schema: ResolvedToolcraftAppSchema,
+): boolean {
+  return (
+    schema.panels.timeline?.enabled === true &&
+    schema.panels.timeline.mode === "keyframes"
+  );
 }
 
 export function hasLayersPanel(schema: ResolvedToolcraftAppSchema): boolean {

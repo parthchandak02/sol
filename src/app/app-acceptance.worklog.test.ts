@@ -6,14 +6,71 @@ import {
   agentWorklogPath,
   createAgentWorklogFixture,
   getAgentWorklogValidationErrors,
-  isPassedPlaywrightFallbackPerfRunLine,
   readToolcraftDoc,
 } from "./app-acceptance.worklog-test-utils";
+import {
+  TOOLCRAFT_DELIVERY_VERIFICATION_NARRATIVE,
+} from "../../scripts/toolcraft-performance-authority-policy.mjs";
 
-const performanceCheckpointError =
-  "agent-worklog.md Verification must record `pnpm verify:perf` as the automated Playwright performance checkpoint for first working product delivery.";
+function appendDecisionTrailIteration(
+  worklog: string,
+  trailFields: NonNullable<
+    Parameters<typeof createAgentWorklogFixture>[0]
+  >["trailFields"],
+): string {
+  const fixture = createAgentWorklogFixture({
+    trailFields,
+    trailHeading: "Delivery 2 - Later product edit",
+  });
+  const latestIteration = /## Decision Trail\n\n([\s\S]*?)\n\n## Evidence/u.exec(
+    fixture,
+  )?.[1];
+  if (!latestIteration) throw new Error("Expected a rendered decision-trail iteration.");
+  return worklog.replace("\n## Evidence", `\n${latestIteration}\n\n## Evidence`);
+}
 
 describe("starter acceptance worklog contract", () => {
+  it("does not treat fenced Decision Trail headings as iterations", () => {
+    const worklog = createAgentWorklogFixture().replace(
+      "\n## Evidence",
+      `
+\`\`\`md
+### Not a delivery iteration
+- Request: Forged request.
+- Source reviewed: forged-reference.mp4 video reference.
+\`\`\`
+
+## Evidence`,
+    );
+
+    expect(getAgentWorklogValidationErrors(worklog)).toEqual([]);
+  });
+
+  it("rejects duplicate Decision Trail sections", () => {
+    const worklog = `${createAgentWorklogFixture()}
+
+## Decision Trail
+
+### Delivery 2 - Duplicate section
+- Request: Forged request.
+`;
+
+    expect(getAgentWorklogValidationErrors(worklog)).toContain(
+      "agent-worklog.md must include exactly one Decision Trail section.",
+    );
+  });
+
+  it("rejects unscoped content before the first Decision Trail iteration", () => {
+    const worklog = createAgentWorklogFixture().replace(
+      "## Decision Trail\n",
+      "## Decision Trail\n\nUnscoped authority prose.\n",
+    );
+
+    expect(getAgentWorklogValidationErrors(worklog)).toContain(
+      "agent-worklog.md Decision Trail cannot contain content before its first iteration heading.",
+    );
+  });
+
   it("keeps an implementation worklog available for generated app decisions", () => {
     expect(
       existsSync(agentWorklogPath),
@@ -42,7 +99,7 @@ describe("starter acceptance worklog contract", () => {
     expect(acceptanceTesting).toContain("builtInFitCheck");
   });
 
-  it("requires product worklogs to record storyboard evidence for video references", () => {
+  it("reports video wording as an unregistered input when typed references are empty", () => {
     const worklog = createAgentWorklogFixture({
       evidenceLines: [
         "- Source reviewed: user prompt, ref.mp4, src/app/product-renderer.tsx.",
@@ -54,34 +111,169 @@ describe("starter acceptance worklog contract", () => {
       },
     });
 
-    expect(getAgentWorklogValidationErrors(worklog)).toContain(
-      "agent-worklog.md cites a video reference, screen recording, GIF, extracted frames, or contact sheet; record a Video Reference Study with storyboard frames and frame-to-frame transition analysis.",
+    expect(
+      getAgentWorklogValidationErrors(worklog, { motionReferences: [] }),
+    ).toContain(
+      "agent-worklog.md cites a video reference, screen recording, GIF, extracted frames, or contact sheet, but appTransferMode.referenceInputs registers no motion reference input.",
     );
   });
 
-  it("accepts product worklogs that record video reference storyboard and transition evidence", () => {
+  it("requires one exact typed summary for each timed motion-reference study", () => {
+    const motionReference = {
+      contactSheetPath:
+        "src/app/reference-studies/study-main/contact-sheet.png",
+      referenceId:
+        "motion-reference-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      requiresRealTimeReview: true,
+      requiresSlowedReview: true,
+      sourceSha256:
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      studyId: "study-main",
+      timingMode: "seconds" as const,
+    };
     const worklog = createAgentWorklogFixture({
       evidenceLines: [
-        "- Source reviewed: user prompt, ref.mp4, extracted frames, contact sheet, src/app/product-renderer.tsx.",
+        "- Source reviewed: user prompt, ref.mp4, extracted frames, src/app/product-renderer.tsx.",
         "- Contract applied: Toolcraft workflow and video-reference-analysis.",
-      ],
-      extraDecisionSections: [
-        [
-          "### Video Reference Study",
-          "- Decision: Implement from storyboard frames and frame-to-frame transition analysis.",
-          "- Reason: The video reference defines behavior, not only a static visual state.",
-          "- Evidence: extracted frames f000/f012/f024/f036 and transition analysis between adjacent frames.",
-        ].join("\n"),
       ],
       trailFields: {
         "Alternatives rejected": "Single screenshot implementation because the video behavior changes frame to frame.",
         "Contract rules applied": "video-reference-analysis and acceptance-product-observable.",
-        "Reference inputs": "/fixtures/reference-motion/ref.mp4 video reference, extracted frames, contact sheet.",
-        "Source/reference checked": "User prompt, /fixtures/reference-motion/ref.mp4 video, extracted frames, and contact sheet.",
+        "Reference inputs": "/fixtures/reference-motion/ref.mp4 video reference.",
+        "Source/reference checked": "User prompt and /fixtures/reference-motion/ref.mp4 video.",
       },
     });
 
-    expect(getAgentWorklogValidationErrors(worklog)).toEqual([]);
+    expect(
+      getAgentWorklogValidationErrors(worklog, {
+        motionReferences: [motionReference],
+      }),
+    ).toEqual([
+      expect.stringContaining('motion reference study "study-main"'),
+    ]);
+
+    const genericKeywords = worklog.replace(
+      "## Decision Trail",
+      [
+        "### Video Reference Study",
+        "- Evidence: storyboard frames and transition analysis from the contact sheet.",
+        "",
+        "## Decision Trail",
+      ].join("\n"),
+    );
+    expect(
+      getAgentWorklogValidationErrors(genericKeywords, {
+        motionReferences: [motionReference],
+      }),
+    ).toEqual([
+      expect.stringContaining('motion reference study "study-main"'),
+    ]);
+
+    const exactRecord = [
+      "- Motion reference study:",
+      `referenceId=${motionReference.referenceId};`,
+      `studyId=${motionReference.studyId};`,
+      `sourceSha256=${motionReference.sourceSha256};`,
+      `timingMode=${motionReference.timingMode};`,
+      `contactSheetPath=${motionReference.contactSheetPath};`,
+      "review=real-time,slowed.",
+    ].join(" ");
+    for (const inexactRecord of [
+      exactRecord.replace(
+        motionReference.referenceId,
+        `${motionReference.referenceId}x`,
+      ),
+      exactRecord.replace("studyId=study-main", "studyId=study-other"),
+      exactRecord.replace(
+        motionReference.sourceSha256,
+        `c${motionReference.sourceSha256.slice(1)}`,
+      ),
+      exactRecord.replace("timingMode=seconds", "timingMode=ordinal"),
+      exactRecord.replace(
+        motionReference.contactSheetPath,
+        "src/app/reference-studies/study-main/other-sheet.png",
+      ),
+      exactRecord.replace("review=real-time,slowed", "review=real-time"),
+    ]) {
+      expect(
+        getAgentWorklogValidationErrors(`${worklog}\n${inexactRecord}`, {
+          motionReferences: [motionReference],
+        }),
+      ).toEqual([
+        expect.stringContaining('motion reference study "study-main"'),
+      ]);
+    }
+    expect(
+      getAgentWorklogValidationErrors(`${worklog}\n${exactRecord}`, {
+        motionReferences: [motionReference],
+      }),
+    ).toEqual([]);
+  });
+
+  it("requires ordered-frame review for ordinal evidence and rejects timing review wording", () => {
+    const motionReference = {
+      contactSheetPath:
+        "src/app/reference-studies/study-ordinal/contact-sheet.png",
+      referenceId:
+        "motion-reference-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      requiresRealTimeReview: false,
+      requiresSlowedReview: false,
+      sourceSha256:
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      studyId: "study-ordinal",
+      timingMode: "ordinal" as const,
+    };
+    const base = createAgentWorklogFixture();
+    const timedWording = `${base}\n- Motion reference study: referenceId=${motionReference.referenceId}; studyId=${motionReference.studyId}; sourceSha256=${motionReference.sourceSha256}; timingMode=ordinal; contactSheetPath=${motionReference.contactSheetPath}; review=real-time,slowed.`;
+    expect(
+      getAgentWorklogValidationErrors(timedWording, {
+        motionReferences: [motionReference],
+      }),
+    ).toEqual([
+      expect.stringContaining('motion reference study "study-ordinal"'),
+    ]);
+
+    const ordinalRecord = timedWording.replace(
+      "review=real-time,slowed",
+      "review=ordered-frames",
+    );
+    expect(
+      getAgentWorklogValidationErrors(ordinalRecord, {
+        motionReferences: [motionReference],
+      }),
+    ).toEqual([]);
+  });
+
+  it("does not let one record satisfy two nested studies", () => {
+    const referenceId =
+      "motion-reference-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const sourceSha256 =
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const first = {
+      contactSheetPath:
+        "src/app/reference-studies/study-one/contact-sheet.png",
+      referenceId,
+      requiresRealTimeReview: true,
+      requiresSlowedReview: false,
+      sourceSha256,
+      studyId: "study-one",
+      timingMode: "seconds" as const,
+    };
+    const second = {
+      ...first,
+      contactSheetPath:
+        "src/app/reference-studies/study-two/contact-sheet.png",
+      studyId: "study-two",
+    };
+    const worklog = `${createAgentWorklogFixture()}\n- Motion reference study: referenceId=${referenceId}; studyId=study-one; sourceSha256=${sourceSha256}; timingMode=seconds; contactSheetPath=${first.contactSheetPath}; review=real-time.`;
+
+    expect(
+      getAgentWorklogValidationErrors(worklog, {
+        motionReferences: [first, second],
+      }),
+    ).toEqual([
+      expect.stringContaining('motion reference study "study-two"'),
+    ]);
   });
 
   it("does not treat ordinary video export worklog evidence as a video reference", () => {
@@ -136,121 +328,45 @@ describe("starter acceptance worklog contract", () => {
     expect(getAgentWorklogValidationErrors(createAgentWorklogFixture())).toEqual([]);
   });
 
-  it("rejects product worklogs that report incomplete required performance gates", () => {
-    const worklog = createAgentWorklogFixture({
-      risksLines: ["- Risk: Required checks are not complete."],
-      trailFields: {
-        Risks: "Product contract tests still need updates before final delivery.",
-        "Skipped checks": "pnpm verify:final and pnpm verify:perf are not complete yet.",
-        Verification: "pnpm test failed; pnpm verify:perf not complete.",
-      },
-      verificationLines: [
-        "- Run: pnpm test failed.",
-        "- Run: pnpm verify:perf not complete.",
-      ],
-    });
-
-    expect(getAgentWorklogValidationErrors(worklog)).toEqual(
-      expect.arrayContaining([
-        "agent-worklog.md required checks must be passed before final delivery; do not report failed, incomplete, pending, or blocked verification.",
-        "agent-worklog.md must not list required checks as skipped unless they are explicitly not required for a post-first-working non-performance edit.",
-        performanceCheckpointError,
-      ]),
-    );
+  it("keeps receipt-owned Run ledgers out of human-intent worklog fixtures", () => {
+    expect(createAgentWorklogFixture()).not.toContain("- Run:");
   });
 
-  it("requires first working product worklogs to record a browser performance checkpoint", () => {
+  it("ignores receipt-owned execution prose outside the Decision Trail", () => {
     const worklog = createAgentWorklogFixture({
-      trailFields: {
-        Verification: "pnpm verify:quick; pnpm verify:final.",
-      },
       verificationLines: [
-        "- Run: pnpm verify:quick",
-        "- Run: pnpm verify:final",
-      ],
-    });
-
-    expect(getAgentWorklogValidationErrors(worklog)).toContain(performanceCheckpointError);
-  });
-
-  it("does not accept agent-browser prose as the final machine performance checkpoint", () => {
-    const worklog = createAgentWorklogFixture({
-      trailFields: {
-        Verification: "pnpm verify:quick; agent-browser performance checkpoint.",
-      },
-      verificationLines: [
-        "- Run: pnpm verify:quick",
-        "- Browser: performance checkpoint runner agent-browser",
-      ],
-    });
-
-    expect(getAgentWorklogValidationErrors(worklog)).toContain(
-      performanceCheckpointError,
-    );
-  });
-
-  it("recognizes automated Playwright performance checkpoint evidence line formats", () => {
-    expect(
-      isPassedPlaywrightFallbackPerfRunLine(
-        "- Verification: playwright-fallback browser performance checkpoint",
-      ),
-    ).toBe(true);
-    expect(isPassedPlaywrightFallbackPerfRunLine("- Run: pnpm verify:perf")).toBe(true);
-    expect(isPassedPlaywrightFallbackPerfRunLine("- Run: pnpm verify:perf not complete")).toBe(false);
-    expect(isPassedPlaywrightFallbackPerfRunLine("- Run: pnpm verify:perf not run")).toBe(false);
-  });
-
-  it("accepts the automated Playwright checkpoint without a manual fallback reason", () => {
-    const worklog = createAgentWorklogFixture({
-      decisions: {
-        Performance: {
-          decision: "Use the automated Playwright browser performance checkpoint.",
-          evidence: "pnpm verify:perf.",
-          reason: "The protected runner can issue the machine performance receipt.",
-        },
-      },
-      trailFields: {
-        Verification: "pnpm verify:quick; pnpm verify:final; pnpm verify:perf.",
-      },
-      verificationLines: [
-        "- Run: pnpm verify:quick",
-        "- Run: pnpm verify:final",
-        "- Run: pnpm verify:perf",
+        "- Run: an obsolete command ledger entry.",
+        "- Measurements: receipt-owned evidence.",
       ],
     });
 
     expect(getAgentWorklogValidationErrors(worklog)).toEqual([]);
   });
 
-  it("allows explicit post-first-working non-performance skips of the full performance suite", () => {
-    const skipLine =
-      "full performance checkpoint not required for this post-first-working non-performance feature loop.";
-    const worklog = createAgentWorklogFixture({
-      decisions: {
-        Performance: {
-          decision: "Skip full perf for this post-first-working copy pass.",
-          evidence: "Prior iteration recorded the pnpm verify:perf Playwright checkpoint.",
-          reason: "No renderer, workload, viewport, animation, export, or performance-sensitive control changed.",
+  it("accepts a later functional delivery with human intent and bare verification", () => {
+    const worklog = appendDecisionTrailIteration(
+      createAgentWorklogFixture({
+        decisions: {
+          Performance: {
+            decision: "Use targeted renderer verification without repeating the full suite.",
+            evidence: "Prior delivery anchor plus the current protected delivery receipt.",
+            reason: "The user did not request performance work.",
+          },
         },
+      }),
+      {
+        "Alternatives rejected":
+          "Repeating unrelated product work in the same delivery.",
+        Decision:
+          "Refine the renderer behavior and let protected planning derive proof.",
+        Request: "Refine one renderer behavior in an already delivered app.",
+        Risks: "Renderer responsiveness is covered by its targeted scenario.",
+        "State/output mapping": "The changed renderer path updates product output directly.",
+        "Task type": "Renderer update after the first working version.",
+        "User-visible result": "The renderer behavior is corrected.",
+        Verification: TOOLCRAFT_DELIVERY_VERIFICATION_NARRATIVE,
       },
-      trailFields: {
-        "Alternatives rejected": "Running full perf because this is a post-first-working non-performance edit.",
-        Decision: "Keep renderer, export, and performance matrix unchanged.",
-        "Files changed": "src/app/app-schema.ts.",
-        Request: "Rename two labels in an already delivered app.",
-        Risks: "None; output behavior is unchanged.",
-        "Skipped checks": skipLine,
-        "State/output mapping": "Label text changes do not alter runtime values or renderer state.",
-        "Task type": "Tier 0 copy update after the first working version.",
-        "User-visible result": "The labels are clearer and product output is unchanged.",
-        Verification: "pnpm verify:quick.",
-      },
-      trailHeading: "Iteration 2 - Copy refinement",
-      verificationLines: [
-        "- Run: pnpm verify:quick",
-        `- Skipped checks: ${skipLine}`,
-      ],
-    });
+    );
 
     expect(getAgentWorklogValidationErrors(worklog)).toEqual([]);
   });
@@ -261,7 +377,6 @@ describe("starter acceptance worklog contract", () => {
         "Alternatives rejected",
         "Contract rules applied",
         "Reference inputs",
-        "Skipped checks",
         "Source/reference checked",
         "State/output mapping",
         "User-visible result",
@@ -270,13 +385,12 @@ describe("starter acceptance worklog contract", () => {
 
     expect(getAgentWorklogValidationErrors(worklog)).toEqual(
       expect.arrayContaining([
-        'agent-worklog.md Decision Trail iteration "Iteration 1 - Product build" must include "User-visible result:".',
-        'agent-worklog.md Decision Trail iteration "Iteration 1 - Product build" must include "Source/reference checked:".',
-        'agent-worklog.md Decision Trail iteration "Iteration 1 - Product build" must include "Reference inputs:".',
-        'agent-worklog.md Decision Trail iteration "Iteration 1 - Product build" must include "Contract rules applied:".',
-        'agent-worklog.md Decision Trail iteration "Iteration 1 - Product build" must include "Alternatives rejected:".',
-        'agent-worklog.md Decision Trail iteration "Iteration 1 - Product build" must include "State/output mapping:".',
-        'agent-worklog.md Decision Trail iteration "Iteration 1 - Product build" must include "Skipped checks:".',
+        'agent-worklog.md Decision Trail iteration "Delivery 1 - Product build" must include "User-visible result:".',
+        'agent-worklog.md Decision Trail iteration "Delivery 1 - Product build" must include "Source/reference checked:".',
+        'agent-worklog.md Decision Trail iteration "Delivery 1 - Product build" must include "Reference inputs:".',
+        'agent-worklog.md Decision Trail iteration "Delivery 1 - Product build" must include "Contract rules applied:".',
+        'agent-worklog.md Decision Trail iteration "Delivery 1 - Product build" must include "Alternatives rejected:".',
+        'agent-worklog.md Decision Trail iteration "Delivery 1 - Product build" must include "State/output mapping:".',
       ]),
     );
   });

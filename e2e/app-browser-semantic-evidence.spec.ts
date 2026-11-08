@@ -1,15 +1,20 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
-
-import { parseToolcraftBrowserRuntimeEvidence } from "../src/app/test-evidence/browser-runtime-contract";
+import { expect, test } from "@playwright/test";
 import {
   expectToolcraftBackgroundOutputSemantics,
-  expectToolcraftConditionalControlVisibility,
-} from "./browser-conditional-output-evidence-helpers";
+  expectToolcraftFiniteBackgroundMediaStacking,
+} from "./browser-background-output-evidence";
+import { expectToolcraftControlApplicabilityState } from "./browser-control-applicability-evidence";
 import {
   expectToolcraftLayerReorder,
   expectToolcraftLayerSelection,
 } from "./browser-layer-evidence-helpers";
 import { createToolcraftBrowserProofSession } from "./browser-proof-session";
+import {
+  attachedEvidenceTypes,
+  setProofState,
+  setSyntheticControlOwner,
+  setSyntheticSwitchControlOwner,
+} from "./browser-semantic-evidence-test-helpers";
 import {
   expectToolcraftMediaLifecycle,
   expectToolcraftPersistenceState,
@@ -19,57 +24,8 @@ import {
   expectToolcraftTimelineDuration,
   expectToolcraftTimelineKeyframes,
   expectToolcraftTimelineLoop,
+  expectToolcraftTimelineRenderedFrame,
 } from "./browser-timeline-evidence-helpers";
-
-const ROOT_SELECTOR = '[data-slot="toolcraft-runtime-app"]';
-
-function attachedEvidenceTypes(
-  testInfo: TestInfo,
-  startIndex: number,
-): Array<string | undefined> {
-  return testInfo.attachments
-    .slice(startIndex)
-    .map(
-      (attachment) =>
-        parseToolcraftBrowserRuntimeEvidence(attachment)?.evidenceType,
-    );
-}
-
-async function setProofState(page: Page, key: string, value: unknown): Promise<void> {
-  await page.locator(ROOT_SELECTOR).evaluate(
-    (root, entry) => {
-      root.setAttribute(`data-proof-${entry.key}`, JSON.stringify(entry.value));
-    },
-    { key, value },
-  );
-}
-
-async function setSyntheticControlOwner(
-  page: Page,
-  target: string,
-  visible: boolean,
-): Promise<void> {
-  await page.locator(ROOT_SELECTOR).evaluate(
-    (root, entry) => {
-      const selector = `[data-synthetic-target="${CSS.escape(entry.target)}"]`;
-      root.querySelector(selector)?.remove();
-      if (!entry.visible) return;
-
-      const owner = document.createElement("div");
-      owner.dataset.syntheticTarget = entry.target;
-      owner.dataset.toolcraftControlTarget = entry.target;
-      const field = document.createElement("div");
-      field.dataset.slot = "field";
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = entry.target;
-      field.append(button);
-      owner.append(field);
-      root.append(owner);
-    },
-    { target, visible },
-  );
-}
 
 test("state recipes prove lifecycle, reload persistence, and viewport semantics", async ({
   page,
@@ -168,7 +124,7 @@ test("layer recipes reject collection substitution and prove exact reorder", asy
   await expect(
     expectToolcraftLayerReorder(
       layersObservation,
-      session.action((currentPage) =>
+      session.targetAction("layers.order", (currentPage) =>
         setProofState(currentPage, "layers", {
           layerIds: ["a", "c"],
           outputSignature: "a-over-c",
@@ -189,7 +145,7 @@ test("layer recipes reject collection substitution and prove exact reorder", asy
   });
   await expectToolcraftLayerReorder(
     layersObservation,
-    session.action((currentPage) =>
+    session.targetAction("layers.order", (currentPage) =>
       setProofState(currentPage, "layers", {
         layerIds: ["b", "a"],
         outputSignature: "b-over-a",
@@ -205,7 +161,7 @@ test("layer recipes reject collection substitution and prove exact reorder", asy
   );
   await expectToolcraftLayerSelection(
     selectionObservation,
-    session.action((currentPage) =>
+    session.targetAction("layers.selection", (currentPage) =>
       setProofState(currentPage, "selection", { selectedLayerId: "b" }),
     ),
     { selectedLayerId: "b" },
@@ -213,6 +169,7 @@ test("layer recipes reject collection substitution and prove exact reorder", asy
   );
 
   expect(attachedEvidenceTypes(testInfo, attachmentCount)).toEqual([
+    "product-observable-change",
     "layer-reorder",
     "layer-selection",
   ]);
@@ -291,6 +248,25 @@ test("timeline recipes bind duration to renderer, keyframes to output, and loops
     { requirementId: "timeline.keyframes", stabilityIntervalMs: 0 },
   );
 
+  await setProofState(page, "rendered-frame", {
+    frame: 0,
+    outputSignature: "frame-0",
+  });
+  const renderedFrameObservation = session.observe((root) =>
+    JSON.parse(root.getAttribute("data-proof-rendered-frame") ?? "null"),
+  );
+  await expectToolcraftTimelineRenderedFrame(
+    renderedFrameObservation,
+    session.action((currentPage) =>
+      setProofState(currentPage, "rendered-frame", {
+        frame: 1,
+        outputSignature: "frame-1",
+      }),
+    ),
+    { frame: 1, outputSignature: "frame-1" },
+    { requirementId: "timeline.rendered-frame", stabilityIntervalMs: 0 },
+  );
+
   await setProofState(page, "loop", {
     initial: {
       durationSeconds: 4,
@@ -335,38 +311,87 @@ test("timeline recipes bind duration to renderer, keyframes to output, and loops
   expect(attachedEvidenceTypes(testInfo, attachmentCount)).toEqual([
     "timeline-duration",
     "timeline-keyframes",
+    "timeline-rendered-frame",
+    "product-observable-change",
     "timeline-loop",
   ]);
 });
 
-test("conditional visibility recipe proves target absence and restoration through the gating control", async ({
+test("control applicability recipe proves exact target absence and presence", async ({
   page,
 }, testInfo) => {
   await page.goto("/");
   const session = await createToolcraftBrowserProofSession(page);
   const attachmentCount = testInfo.attachments.length;
-  await setSyntheticControlOwner(page, "feature.enabled", true);
+  await setSyntheticSwitchControlOwner(page, "feature.enabled", false);
   await setSyntheticControlOwner(page, "feature.conditional", true);
 
-  await expectToolcraftConditionalControlVisibility(
+  const hiddenCase = {
+    expectation: "hidden" as const,
+    selectorControlType: "switch" as const,
+    selectorLabel: "feature.enabled",
+    selectorTarget: "feature.enabled",
+    selectorValue: false,
+    target: "feature.conditional",
+  };
+  const visibleCase = {
+    ...hiddenCase,
+    expectation: "visible" as const,
+    selectorValue: true,
+  };
+  const mismatchedAction = session.controlAction(
+    "feature.other",
+    () => undefined,
+  );
+
+  await expect(
+    expectToolcraftControlApplicabilityState(
+      session,
+      mismatchedAction,
+      hiddenCase,
+      { baseRequirementId: "feature.conditional", timeoutMs: 50 },
+    ),
+  ).rejects.toThrow(/target-scoped selector action/);
+  expect(testInfo.attachments).toHaveLength(attachmentCount);
+
+  await expect(
+    expectToolcraftControlApplicabilityState(
+      session,
+      session.controlAction("feature.enabled", () => undefined),
+      hiddenCase,
+      { baseRequirementId: "feature.conditional", timeoutMs: 50 },
+    ),
+  ).rejects.toThrow(/should be hidden/);
+  expect(testInfo.attachments).toHaveLength(attachmentCount);
+
+  await expectToolcraftControlApplicabilityState(
     session,
     session.controlAction("feature.enabled", (control, currentPage) => {
       expect(control).toBeTruthy();
-      return setSyntheticControlOwner(currentPage, "feature.conditional", false);
+      return Promise.all([
+        setSyntheticSwitchControlOwner(currentPage, "feature.enabled", false),
+        setSyntheticControlOwner(currentPage, "feature.conditional", false),
+      ]).then(() => undefined);
     }),
+    hiddenCase,
+    { baseRequirementId: "feature.conditional" },
+  );
+  await expectToolcraftControlApplicabilityState(
+    session,
     session.controlAction("feature.enabled", (control, currentPage) => {
       expect(control).toBeTruthy();
-      return setSyntheticControlOwner(currentPage, "feature.conditional", true);
+      return Promise.all([
+        setSyntheticSwitchControlOwner(currentPage, "feature.enabled", true),
+        setSyntheticControlOwner(currentPage, "feature.conditional", true),
+      ]).then(() => undefined);
     }),
-    {
-      requirementId: "feature.conditional",
-      target: "feature.conditional",
-    },
+    visibleCase,
+    { baseRequirementId: "feature.conditional" },
   );
 
   expect(attachedEvidenceTypes(testInfo, attachmentCount)).toEqual([
-    "conditional-control-hidden",
-    "conditional-control-visible",
+    "control-applicability-hidden",
+    "control-applicability-visible",
   ]);
 });
 
@@ -423,10 +448,53 @@ test("background recipe proves preview exclusion, transparent image pixels, and 
     },
   );
 
+  await setProofState(page, "finite-background", {
+    backgroundColor: "#101010",
+    backgroundVisible: false,
+    canvasMode: "finite",
+    layerOrder: ["media", "product"],
+    mediaVisible: true,
+    outputSignature: "finite-background-off",
+    productForegroundTransparent: true,
+  });
+  const finiteStacking = session.observe((root) =>
+    JSON.parse(root.getAttribute("data-proof-finite-background") ?? "null"),
+  );
+  await expectToolcraftFiniteBackgroundMediaStacking(
+    finiteStacking,
+    session.controlAction(includeBackgroundTarget, (_control, currentPage) =>
+      setProofState(currentPage, "finite-background", {
+        backgroundColor: "#101010",
+        backgroundVisible: true,
+        canvasMode: "finite",
+        layerOrder: ["background", "media", "product"],
+        mediaVisible: true,
+        outputSignature: "finite-background-on",
+        productForegroundTransparent: true,
+      }),
+    ),
+    {
+      backgroundColor: "#101010",
+      backgroundVisible: true,
+      canvasMode: "finite",
+      layerOrder: ["background", "media", "product"],
+      mediaVisible: true,
+      outputSignature: "finite-background-on",
+      productForegroundTransparent: true,
+    },
+    {
+      requirementId: includeBackgroundTarget,
+      stabilityIntervalMs: 0,
+    },
+  );
+
   expect(attachedEvidenceTypes(testInfo, attachmentCount)).toEqual([
     "product-observable-change",
     "background-preview-exclusion",
+    "exported-artifact",
     "background-image-transparency",
     "background-video-preserved",
+    "product-observable-change",
+    "background-finite-media-stacking",
   ]);
 });

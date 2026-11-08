@@ -4,7 +4,9 @@
     { "id": "runtime-shell-required", "level": "invariant", "area": "runtime-shell" },
     { "id": "canvas-no-app-ui", "level": "invariant", "area": "canvas" },
     { "id": "canvas-surface-preserved", "level": "invariant", "area": "canvas" },
+    { "id": "infinity-canvas-scene-bounds", "level": "invariant", "area": "canvas" },
     { "id": "canvas-handle-placement", "level": "heuristic", "area": "canvas" },
+    { "id": "interaction-surface-ownership", "level": "invariant", "area": "controls" },
     { "id": "panel-host-behavior", "level": "invariant", "area": "panels" },
     { "id": "layers-enable-only-when-needed", "level": "heuristic", "area": "layers" },
     { "id": "layers-enabled-behavior", "level": "invariant", "area": "layers" },
@@ -16,6 +18,9 @@
     { "id": "controls-component-layout-invariants", "level": "invariant", "area": "controls" },
     { "id": "controls-layout-heuristics", "level": "heuristic", "area": "controls" },
     { "id": "renderer-technique-inventory", "level": "default", "area": "renderer" },
+    { "id": "renderer-gpu-provider", "level": "invariant", "area": "renderer" },
+    { "id": "renderer-view-interaction", "level": "invariant", "area": "renderer" },
+    { "id": "model-appearance-presentation", "level": "invariant", "area": "renderer" },
     { "id": "reference-clone-source-of-truth", "level": "invariant", "area": "reference-clone" },
     { "id": "video-reference-analysis", "level": "invariant", "area": "reference-analysis" },
     { "id": "acceptance-product-observable", "level": "invariant", "area": "acceptance" },
@@ -23,6 +28,41 @@
     { "id": "persistence-policy-explicit", "level": "default", "area": "persistence" },
     { "id": "workflow-required", "level": "invariant", "area": "workflow" }
   ],
+  "performanceVerification": {
+    "evidenceLevels": [
+      "targeted-performance",
+      "full-performance"
+    ],
+    "modes": {
+      "functionalInitial": {
+        "baseline": "preserve",
+        "functionalAcceptance": "full",
+        "performance": "none"
+      },
+      "functionalTargeted": {
+        "baseline": "preserve",
+        "functionalAcceptance": "exact-ownership-derived",
+        "performance": "none"
+      },
+      "performanceIteration": {
+        "baseline": "not-required",
+        "intent": "performance-iteration",
+        "performance": "exact-targeted-checks"
+      },
+      "fullCertification": {
+        "automaticLaunch": "forbidden",
+        "authority": "explicit-user-consent-via-operator-command",
+        "performance": "complete-current-matrix",
+        "recommendation": "two-compatible-iterations-or-agent-judged-broad-unlocalizable-problem",
+        "userCommandKnowledge": "not-required"
+      }
+    },
+    "requestClassification": [
+      "high-confidence-performance-iteration",
+      "high-confidence-ordinary-product-work",
+      "needs-agent-judgment"
+    ]
+  },
   "builtInControls": [
     { "type": "aspectRatio", "visualComponent": "CanvasAspectRatioControl" },
     { "type": "slider", "visualComponent": "Slider" },
@@ -32,14 +72,17 @@
     { "type": "code", "visualComponent": "CodeTextarea" },
     { "type": "select", "visualComponent": "Select" },
     { "type": "segmented", "visualComponent": "Segmented" },
+    { "type": "tabs", "visualComponent": "TabsControl" },
     { "type": "switch", "visualComponent": "Switch" },
     { "type": "checkbox", "visualComponent": "Checkbox" },
     { "type": "actions", "visualComponent": "Actions" },
     { "type": "collectionActions", "visualComponent": "CollectionActions" },
+    { "type": "sourceCollection", "visualComponent": "ControlsPanelCollectionItems" },
     { "type": "panelActions", "visualComponent": "PanelActions" },
     { "type": "colorOpacity", "visualComponent": "ColorOpacity" },
     { "type": "palette", "visualComponent": "Palette" },
     { "type": "vector", "visualComponent": "Vector" },
+    { "type": "orientationGizmo", "visualComponent": "ToolcraftOrientationGizmo" },
     { "type": "color", "visualComponent": "Color" },
     { "type": "gradient", "visualComponent": "Gradient" },
     { "type": "fontPicker", "visualComponent": "FontPicker" },
@@ -105,6 +148,7 @@
     "StyleGuideColorPicker",
     "SwitchControl",
     "Switch",
+    "TabsControl",
     "TextInputControl",
     "TextInput",
     "VectorControl",

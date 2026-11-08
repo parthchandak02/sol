@@ -1,16 +1,9 @@
-import type { ToolcraftComponentAcceptance } from "./types";
-
-const commandTargets = new Set([
-  "canvas.center",
-  "canvas.setOffset",
-  "canvas.setSize",
-  "canvas.setViewport",
-  "canvas.zoomIn",
-  "canvas.zoomOut",
-  "controls.setValue",
-  "history.redo",
-  "history.undo",
-]);
+import type {
+  ToolcraftComponentAcceptance,
+  ToolcraftProductReadiness,
+  ToolcraftVisibleControl,
+} from "./types";
+import { isToolcraftSupportedInteractionTarget } from "./interaction-targets";
 
 export function getToolcraftCanvasHandleAcceptanceErrors({
   acceptance,
@@ -41,8 +34,10 @@ export function getToolcraftCanvasHandleAcceptanceErrors({
 
     if (
       entry.canvasHandle.writesTarget &&
-      !controlTargets.has(entry.canvasHandle.writesTarget) &&
-      !commandTargets.has(entry.canvasHandle.writesTarget)
+      !isToolcraftSupportedInteractionTarget(
+        entry.canvasHandle.writesTarget,
+        controlTargets,
+      )
     ) {
       errors.push(
         `${entry.id} canvas handle writesTarget ${entry.canvasHandle.writesTarget} does not match a schema target or supported editor command.`,
@@ -53,16 +48,67 @@ export function getToolcraftCanvasHandleAcceptanceErrors({
       errors.push(`${entry.id} canvas handle must describe the product output change.`);
     }
 
-    if (!entry.canvasHandle.exportCleanTestName.trim()) {
-      errors.push(`${entry.id} canvas handle must point to an export-clean test.`);
-    }
-
-    if (!entry.browser || !entry.browserTestName.trim()) {
+    if (entry.browser === false) {
       errors.push(`${entry.id} canvas handle must have browser drag coverage.`);
     }
 
     if (!entry.automated || !entry.automatedTestName.trim()) {
       errors.push(`${entry.id} canvas handle must have automated output coverage.`);
+    }
+  }
+
+  return errors;
+}
+
+export function getToolcraftCanvasEditingProofErrors({
+  acceptance,
+  capabilityActive,
+  controls,
+  productReadiness,
+}: Readonly<{
+  acceptance: readonly ToolcraftComponentAcceptance[];
+  capabilityActive: boolean;
+  controls: readonly ToolcraftVisibleControl[];
+  productReadiness: ToolcraftProductReadiness;
+}>): string[] {
+  const handles = acceptance.filter(
+    (entry) =>
+      entry.kind === "canvas-handle" &&
+      entry.componentType !== "orientationGizmo",
+  );
+
+  if (!capabilityActive) {
+    return handles.map(
+      (entry) =>
+        `Acceptance "${entry.id}" claims canvas.editing proof but that capability is absent.`,
+    );
+  }
+
+  if (handles.length === 0) {
+    return [
+      "canvas.editing requires a canvas-handle acceptance row proving direct manipulation output.",
+    ];
+  }
+
+  const errors = getToolcraftCanvasHandleAcceptanceErrors({
+    acceptance: handles,
+    controlTargets: new Set(controls.map(({ control }) => control.target)),
+  });
+  const ownership =
+    productReadiness.mode === "product"
+      ? productReadiness.interactionOwnership
+      : [];
+
+  for (const handle of handles) {
+    const owner = ownership.find(({ id }) => id === handle.interactionId);
+    if (
+      !owner ||
+      owner.surface !== "canvas" ||
+      owner.target !== handle.canvasHandle?.writesTarget
+    ) {
+      errors.push(
+        `${handle.id} canvas.editing proof must reference matching canvas interactionOwnership for its writesTarget.`,
+      );
     }
   }
 

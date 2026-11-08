@@ -1,118 +1,85 @@
 #!/usr/bin/env node
 
-import { access, mkdir, rename, writeFile } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import spawn from "cross-spawn";
+import { updateToolcraftCheckpointBundle } from "./toolcraft-checkpoint-bundle.mjs";
+import { readToolcraftDeliveryAnchor } from "./toolcraft-delivery-anchor.mjs";
+import { measureToolcraftPerformanceCheckpoint } from "./toolcraft-performance-checkpoint-runner.mjs";
+import { runToolcraftProofPackageScript } from "./toolcraft-proof-process.mjs";
+import { createToolcraftPerformanceCheckpointReceipt } from "./toolcraft-performance-receipt-policy.mjs";
+import { collectToolcraftVerificationInputs } from "./toolcraft-verification-receipt.mjs";
+import { withToolcraftVerificationLock } from "./toolcraft-verification-lock.mjs";
 
-import {
-  TOOLCRAFT_PERFORMANCE_RECEIPT_VERSION,
-  assertToolcraftVerificationInputsUnchanged,
-  clearToolcraftPerformanceReceipt,
-  collectToolcraftVerificationInputs,
-  getToolcraftPerformanceReceiptPath,
-} from "./toolcraft-verification-receipt.mjs";
-
-const projectDir = path.resolve(
+const defaultProjectDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const [, , ...requestedArguments] = process.argv;
-const unsupportedArguments = requestedArguments.filter(
-  (argument) => argument !== "--",
-);
-if (unsupportedArguments.length > 0) {
-  throw new Error(
-    `Toolcraft protected performance checkpoints do not accept Playwright arguments: ${unsupportedArguments.join(" ")}. Run Playwright directly for targeted diagnosis.`,
-  );
+
+function assertOperatorArguments(arguments_) {
+  const unsupportedArguments = arguments_.filter((argument) => argument !== "--");
+  if (unsupportedArguments.length > 0) {
+    throw new Error(
+      `Toolcraft full performance operator command does not accept arguments: ${unsupportedArguments.join(" ")}. Run Playwright directly for targeted diagnosis.`,
+    );
+  }
 }
 
-function getBinaryPath(name) {
-  return path.join(
+async function runToolcraftFullPerformanceCertificationCore({ projectDir }) {
+  const loaded = await readToolcraftDeliveryAnchor(projectDir);
+  if (loaded.missing) {
+    throw new Error(
+      "Toolcraft full performance requires a current successful delivery.",
+    );
+  }
+  if (loaded.error) throw new Error(loaded.error);
+  const initialInventory =
+    await collectToolcraftVerificationInputs(projectDir);
+  await runToolcraftProofPackageScript(projectDir, "build");
+  const measurement = await measureToolcraftPerformanceCheckpoint({
+    baselineInventory: initialInventory,
     projectDir,
-    "node_modules",
-    ".bin",
-    process.platform === "win32" ? `${name}.cmd` : name,
-  );
+  });
+  const checkpoint = createToolcraftPerformanceCheckpointReceipt(measurement);
+  return updateToolcraftCheckpointBundle({
+    expectedSourceInventory: measurement.inventory,
+    rootDir: projectDir,
+    update: (bundle) => ({
+      ...bundle,
+      performanceBaseline: checkpoint,
+    }),
+  });
 }
 
-const playwrightBin = getBinaryPath("playwright");
-const tscBin = getBinaryPath("tsc");
-const viteBin = getBinaryPath("vite");
-
-const baselineInventory = await collectToolcraftVerificationInputs(projectDir);
-await clearToolcraftPerformanceReceipt(projectDir);
-
-await Promise.all([playwrightBin, tscBin, viteBin].map((filePath) => access(filePath)));
-
-function runBinary(binaryPath, args, env = process.env) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(binaryPath, args, { env, stdio: "inherit" });
-
-    child.on("error", reject);
-    child.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`${path.basename(binaryPath)} exited after signal ${signal}.`));
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(`${path.basename(binaryPath)} exited with code ${code ?? 1}.`));
-        return;
-      }
-      resolve();
+export async function runToolcraftFullPerformanceCertification({
+  projectDir = defaultProjectDir,
+} = {}) {
+  const resolvedProjectDir = path.resolve(projectDir);
+  return withToolcraftVerificationLock(resolvedProjectDir, () => {
+    return runToolcraftFullPerformanceCertificationCore({
+      projectDir: resolvedProjectDir,
     });
   });
 }
 
-async function writeToolcraftPerformanceCheckpointReceipt(inventory) {
-  const receiptPath = getToolcraftPerformanceReceiptPath(projectDir);
-  const temporaryPath = `${receiptPath}.${process.pid}.tmp`;
-  await mkdir(path.dirname(receiptPath), { recursive: true });
-  await writeFile(
-    temporaryPath,
-    `${JSON.stringify(
-      {
-        completedAt: new Date().toISOString(),
-        files: inventory.entries,
-        kind: "performance-checkpoint",
-        runner: "playwright-fallback",
-        sourceHash: inventory.sourceHash,
-        status: "passed",
-        version: TOOLCRAFT_PERFORMANCE_RECEIPT_VERSION,
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  await rename(temporaryPath, receiptPath);
+async function main() {
+  assertOperatorArguments(process.argv.slice(2));
+  await runToolcraftFullPerformanceCertification();
 }
 
-await runBinary(tscBin, ["-p", "tsconfig.json", "--noEmit"]);
-await runBinary(viteBin, ["build"]);
-assertToolcraftVerificationInputsUnchanged({
-  baseline: baselineInventory,
-  current: await collectToolcraftVerificationInputs(projectDir),
-  phase: "during the production build",
-});
-await runBinary(playwrightBin, ["install", "chromium"]);
-await runBinary(
-  playwrightBin,
-  [
-    "test",
-    "--grep",
-    "browser perf:",
-    "--workers=1",
-  ],
-  {
-    ...process.env,
-    TOOLCRAFT_BROWSER_SERVER_MODE: "preview",
-  },
-);
-const verifiedInventory = await collectToolcraftVerificationInputs(projectDir);
-assertToolcraftVerificationInputsUnchanged({
-  baseline: baselineInventory,
-  current: verifiedInventory,
-  phase: "during Playwright",
-});
-await writeToolcraftPerformanceCheckpointReceipt(verifiedInventory);
+async function isDirectExecution() {
+  if (!process.argv[1]) return false;
+  try {
+    return (
+      (await realpath(process.argv[1])) ===
+      (await realpath(fileURLToPath(import.meta.url)))
+    );
+  } catch {
+    return path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  }
+}
+
+if (await isDirectExecution()) {
+  await main();
+}

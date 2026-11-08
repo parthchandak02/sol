@@ -123,7 +123,7 @@ export async function expectToolcraftStableOutcomeBaseline<T>(
     await delay(intervalMs);
     current = await observeOutcome();
     expect(
-      current,
+      current as unknown,
       `${message} The baseline must remain stable before the action; autonomous output requires an expected semantic observation or a deterministic fixed phase.`,
     ).toEqual(baselineSnapshot);
   }
@@ -155,7 +155,7 @@ export async function expectToolcraftPersistentOutcomeChange<T>(
     await delay(Math.max(0, stabilityIntervalMs));
     current = await observeOutcome();
     expect(
-      current,
+      current as unknown,
       `${message} The changed outcome must remain different from its baseline throughout the stability window.`,
     ).not.toEqual(baseline);
   }
@@ -185,7 +185,7 @@ export async function expectToolcraftPersistentExpectedOutcome<T>(
     await delay(Math.max(0, stabilityIntervalMs));
     current = await observeOutcome();
     expect(
-      current,
+      current as unknown,
       `${message} The expected outcome must remain stable throughout the verification window.`,
     ).toEqual(expectedSnapshot);
   }

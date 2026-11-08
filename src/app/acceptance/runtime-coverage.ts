@@ -1,5 +1,6 @@
 import type {
   ResolvedToolcraftAppSchema,
+  ToolcraftPersistableStateSlice,
   ToolcraftTimelineMode,
 } from "@/toolcraft/runtime";
 
@@ -9,6 +10,7 @@ import {
 } from "./coverage";
 import {
   schemaHasPngExportPanelAction,
+  schemaHasSvgExportPanelAction,
   schemaHasVideoExportPanelAction,
 } from "./output-export";
 import type {
@@ -53,7 +55,8 @@ export function getToolcraftLayerCoverageErrors({
     for (const coverage of requiredLayerCoverage) {
       const entry = acceptance.find(
         (acceptanceEntry) =>
-          acceptanceEntry.kind === "runtime" && acceptanceEntry.layerCoverage === coverage,
+          acceptanceEntry.kind === "runtime" &&
+          acceptanceEntry.layerCoverage === coverage,
       );
 
       if (!entry) {
@@ -64,11 +67,15 @@ export function getToolcraftLayerCoverageErrors({
       }
 
       if (!entry.automated || !entry.automatedTestName.trim()) {
-        errors.push(`${entry.id} must have automated coverage proving layer ${coverage}.`);
+        errors.push(
+          `${entry.id} must have automated coverage proving layer ${coverage}.`,
+        );
       }
 
-      if (!entry.browser || !entry.browserTestName.trim()) {
-        errors.push(`${entry.id} must have browser coverage proving layer ${coverage}.`);
+      if (entry.browser === false) {
+        errors.push(
+          `${entry.id} must have browser coverage proving layer ${coverage}.`,
+        );
       }
 
       if (!entry.expectedObservable.trim()) {
@@ -104,7 +111,8 @@ export function getToolcraftTimelinePlaybackCoverageErrors({
   }
 
   const playbackEntry = acceptance.find(
-    (entry) => entry.kind === "runtime" && entry.timelineCoverage === "playback",
+    (entry) =>
+      entry.kind === "runtime" && entry.timelineCoverage === "playback",
   );
 
   if (!playbackEntry) {
@@ -127,7 +135,10 @@ export function getToolcraftTimelinePlaybackCoverageErrors({
   }
 
   if (
-    hasTimelinePlaybackCoveragePart(playbackEntry.timelinePlaybackCoverage, "loop") &&
+    hasTimelinePlaybackCoveragePart(
+      playbackEntry.timelinePlaybackCoverage,
+      "loop",
+    ) &&
     (playbackEntry.timelineLoopProof?.direction !==
       requiredTimelineLoopProof.direction ||
       playbackEntry.timelineLoopProof.durationChange !==
@@ -156,7 +167,8 @@ export function getToolcraftTimelineKeyframeCoverageErrors({
   }
 
   const hasKeyframesCoverage = acceptance.some(
-    (entry) => entry.kind === "runtime" && entry.timelineCoverage === "keyframes",
+    (entry) =>
+      entry.kind === "runtime" && entry.timelineCoverage === "keyframes",
   );
 
   if (hasKeyframesCoverage) {
@@ -178,7 +190,11 @@ export function getToolcraftCanvasSizingCoverageErrors({
   const errors: string[] = [];
 
   if (schema.canvas.sizing.mode === "fixed-output") {
-    if (schemaHasPngExportPanelAction(schema) || schemaHasVideoExportPanelAction(schema)) {
+    if (
+      schemaHasPngExportPanelAction(schema) ||
+      schemaHasSvgExportPanelAction(schema) ||
+      schemaHasVideoExportPanelAction(schema)
+    ) {
       errors.push(
         'Product/output apps with export actions must use canvas.sizing mode "editable-output" so Aspect ratio, Canvas width, and Canvas height are always available. Put reference, fixed-format, or user-requested dimensions in canvas.size as the initial value instead of hiding size controls with "fixed-output".',
       );
@@ -195,13 +211,16 @@ export function getToolcraftCanvasSizingCoverageErrors({
         'canvas.sizing mode "fixed-output" requires a runtime acceptance entry with canvasSizingCoverage "fixed-output-size" explaining why width and height are intentionally non-editable. Product/output apps must use "editable-output"; user-provided, reference, fixed-format, or base/default sizes belong in canvas.size as editable initial values.',
       );
     } else {
-      if (!fixedCanvasSizingEntry.automated || !fixedCanvasSizingEntry.automatedTestName.trim()) {
+      if (
+        !fixedCanvasSizingEntry.automated ||
+        !fixedCanvasSizingEntry.automatedTestName.trim()
+      ) {
         errors.push(
           `${fixedCanvasSizingEntry.id} must have automated coverage proving fixed output dimensions.`,
         );
       }
 
-      if (!fixedCanvasSizingEntry.browser || !fixedCanvasSizingEntry.browserTestName.trim()) {
+      if (fixedCanvasSizingEntry.browser === false) {
         errors.push(
           `${fixedCanvasSizingEntry.id} must have browser coverage proving fixed output dimensions.`,
         );
@@ -225,13 +244,16 @@ export function getToolcraftCanvasSizingCoverageErrors({
         'canvas.sizing mode "intrinsic-media" with upload requires a runtime acceptance entry with canvasSizingCoverage "intrinsic-media-size" proving the app is a true media-viewer/source-native product where imported media natural dimensions intentionally own canvas.size. Uploaded background/source images inside product canvases must use "editable-output" and keep the current canvas size.',
       );
     } else {
-      if (!intrinsicCanvasSizingEntry.automated || !intrinsicCanvasSizingEntry.automatedTestName.trim()) {
+      if (
+        !intrinsicCanvasSizingEntry.automated ||
+        !intrinsicCanvasSizingEntry.automatedTestName.trim()
+      ) {
         errors.push(
           `${intrinsicCanvasSizingEntry.id} must have automated coverage proving intrinsic media sizing.`,
         );
       }
 
-      if (!intrinsicCanvasSizingEntry.browser || !intrinsicCanvasSizingEntry.browserTestName.trim()) {
+      if (intrinsicCanvasSizingEntry.browser === false) {
         errors.push(
           `${intrinsicCanvasSizingEntry.id} must have browser coverage proving intrinsic media sizing.`,
         );
@@ -242,39 +264,59 @@ export function getToolcraftCanvasSizingCoverageErrors({
   return errors;
 }
 
-export function getToolcraftPersistenceCoverageErrors({
+export type ToolcraftPersistenceCoverageResult = Readonly<{
+  diagnostics: readonly string[];
+  reloadCoverageValidated: boolean;
+  validatedSlices: readonly ToolcraftPersistableStateSlice[];
+}>;
+
+function createPersistenceCoverageResult(
+  diagnostics: readonly string[],
+  validatedSlices: readonly ToolcraftPersistableStateSlice[] = [],
+  reloadCoverageValidated = false,
+): ToolcraftPersistenceCoverageResult {
+  return Object.freeze({
+    diagnostics: Object.freeze([...diagnostics]),
+    reloadCoverageValidated,
+    validatedSlices: Object.freeze([...validatedSlices]),
+  });
+}
+
+export function getToolcraftPersistenceCoverageResult({
   acceptance,
   schema,
 }: {
   acceptance: readonly ToolcraftComponentAcceptance[];
   schema: ResolvedToolcraftAppSchema;
-}): string[] {
+}): ToolcraftPersistenceCoverageResult {
   const errors: string[] = [];
 
   if (schema.persistence.storage !== "localStorage") {
-    return errors;
+    return createPersistenceCoverageResult(errors);
   }
 
   const persistenceEntry = acceptance.find(
     (entry) =>
-      entry.kind === "runtime" &&
-      entry.persistenceCoverage === "reload",
+      entry.kind === "runtime" && entry.persistenceCoverage === "reload",
   );
 
   if (!persistenceEntry) {
     errors.push(
       'persistence.storage "localStorage" requires a runtime acceptance entry with persistenceCoverage "reload" proving user-edited persisted state restores after a real browser reload. Settings import/export is not a substitute for persistence.',
     );
-    return errors;
+    return createPersistenceCoverageResult(errors);
   }
 
-  if (!persistenceEntry.automated || !persistenceEntry.automatedTestName.trim()) {
+  if (
+    !persistenceEntry.automated ||
+    !persistenceEntry.automatedTestName.trim()
+  ) {
     errors.push(
       `${persistenceEntry.id} must have automated coverage proving persistence reload behavior.`,
     );
   }
 
-  if (!persistenceEntry.browser || !persistenceEntry.browserTestName.trim()) {
+  if (persistenceEntry.browser === false) {
     errors.push(
       `${persistenceEntry.id} must have browser coverage proving persistence reload behavior.`,
     );
@@ -286,5 +328,52 @@ export function getToolcraftPersistenceCoverageErrors({
     );
   }
 
-  return errors;
+  if (persistenceEntry.evidence !== "persistence-state") {
+    errors.push(
+      `${persistenceEntry.id} must use evidence "persistence-state" for reload coverage.`,
+    );
+  }
+
+  const expectedSlices = [...schema.persistence.include].sort();
+  const declaredSlices = persistenceEntry.persistenceSlices;
+
+  if (!declaredSlices) {
+    errors.push(
+      `${persistenceEntry.id} must declare persistenceSlices for every resolved persisted slice: ${expectedSlices.join(", ")}.`,
+    );
+  } else {
+    const normalizedSlices = [...new Set(declaredSlices)].sort();
+    const missingSlices = expectedSlices.filter(
+      (slice) => !normalizedSlices.includes(slice),
+    );
+    const unexpectedSlices = normalizedSlices.filter(
+      (slice) => !expectedSlices.includes(slice),
+    );
+
+    if (
+      missingSlices.length > 0 ||
+      unexpectedSlices.length > 0 ||
+      normalizedSlices.length !== declaredSlices.length
+    ) {
+      const differences = [
+        missingSlices.length > 0 ? `missing ${missingSlices.join(", ")}` : null,
+        unexpectedSlices.length > 0
+          ? `unexpected ${unexpectedSlices.join(", ")}`
+          : null,
+        normalizedSlices.length !== declaredSlices.length
+          ? "duplicate slice declarations"
+          : null,
+      ].filter((difference) => difference !== null);
+
+      errors.push(
+        `${persistenceEntry.id} persistenceSlices must exactly match the resolved persistence plan (${expectedSlices.join(", ")}): ${differences.join("; ")}.`,
+      );
+    }
+  }
+
+  return createPersistenceCoverageResult(
+    errors,
+    errors.length === 0 ? expectedSlices : [],
+    errors.length === 0,
+  );
 }

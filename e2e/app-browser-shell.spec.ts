@@ -24,7 +24,7 @@ test("browser renders the Toolcraft template shell instead of a reference iframe
   const nonCanvasIframeCount = await page.evaluate(
     () =>
       Array.from(document.querySelectorAll("iframe")).filter(
-        (frame) => !frame.closest("[data-toolcraft-canvas-slot]"),
+        (frame) => !frame.closest("[data-toolcraft-product-scene]"),
       ).length,
   );
 
@@ -72,13 +72,32 @@ test("product observable helper catches changed and unchanged output", async ({ 
     <div data-toolcraft-product-output>Before</div>
     <button type="button" id="change-output">Change output</button>
   `);
+  expect(
+    await page.evaluate(() => ({
+      hasSubtleCrypto: typeof crypto.subtle !== "undefined",
+      href: location.href,
+      secure: isSecureContext,
+    })),
+  ).toEqual({
+    hasSubtleCrypto: false,
+    href: "about:blank",
+    secure: false,
+  });
 
   const snapshot = await getToolcraftProductObservableSnapshot(page);
+  const decodedSnapshot = JSON.parse(snapshot) as {
+    height: number;
+    rasterHash: string;
+    width: number;
+  };
 
-  expect(
-    snapshot,
-    "The product observable helper should read marked product output.",
-  ).toContain("Before");
+  expect(decodedSnapshot).toMatchObject({
+    height: expect.any(Number),
+    rasterHash: expect.stringMatching(/^[a-f0-9]+$/u),
+    width: expect.any(Number),
+  });
+  expect(decodedSnapshot.height).toBeGreaterThan(0);
+  expect(decodedSnapshot.width).toBeGreaterThan(0);
 
   await expectToolcraftProductObservableToChange(page, async () => {
     await page.locator("#change-output").evaluate((button) => {

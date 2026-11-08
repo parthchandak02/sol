@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "title": "Sol",
+  "asset": "public/toolcraft/cover.png",
+  "generation": {
+    "kind": "app-composition",
+    "source": "src/app/app-composition.tsx",
+    "state": "app-cover-state.json",
+    "description": "Actual app export (4K PNG) of the default poster: New York, 21 June, 17:00 local time, warm paper background; 16:9 output, no editor UI."
+  }
+}

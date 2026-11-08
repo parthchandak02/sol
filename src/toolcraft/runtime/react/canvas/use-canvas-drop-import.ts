@@ -2,20 +2,16 @@
 
 import * as React from "react";
 
-import type {
-  ToolcraftCommand,
-  ToolcraftPoint,
-  ToolcraftState,
-} from "../../state/types";
-import {
-  isToolcraftImageFile,
-  readImportedFile,
-  readImportedImageFile,
-} from "./media-file";
-import {
-  getCanvasDropTarget,
-  getVisibleFileDropControls,
-} from "./canvas-upload-routing";
+import type { ToolcraftSourceAssetCoordinator } from "../../source-assets/source-asset-coordinator";
+import type { ToolcraftSourceAssetFeedback } from "../../source-assets/source-asset-types";
+import type { ToolcraftExternalStore } from "../../state/toolcraft-external-store";
+import type { ToolcraftPoint } from "../../state/types";
+import { getCanvasDropTarget } from "./canvas-upload-routing";
+
+export type ToolcraftCanvasUploadPresentationState = {
+  directOperation: boolean;
+  feedback: ToolcraftSourceAssetFeedback | null;
+};
 
 function getCanvasPositionFromEvent(
   event: React.DragEvent<HTMLElement>,
@@ -32,22 +28,22 @@ function getCanvasPositionFromEvent(
 }
 
 export function useCanvasDropImport({
-  dispatch,
-  offset,
+  coordinator,
+  onPresentationChange,
   setDragOver,
-  size,
-  state,
+  store,
   uploadEnabled,
-  zoom,
 }: {
-  dispatch: React.Dispatch<ToolcraftCommand>;
-  offset: ToolcraftPoint;
+  coordinator: ToolcraftSourceAssetCoordinator;
+  onPresentationChange: (
+    state: ToolcraftCanvasUploadPresentationState,
+  ) => void;
   setDragOver: React.Dispatch<React.SetStateAction<boolean>>;
-  size: ToolcraftState["canvas"]["size"];
-  state: ToolcraftState;
+  store: ToolcraftExternalStore;
   uploadEnabled: boolean;
-  zoom: number;
 }): React.DragEventHandler<HTMLDivElement> {
+  const dropSequence = React.useRef(0);
+
   return React.useCallback(
     (event) => {
       if (!uploadEnabled) {
@@ -62,84 +58,59 @@ export function useCanvasDropImport({
       if (uploadedFiles.length === 0) {
         return;
       }
+      const sequence = ++dropSequence.current;
 
+      const state = store.getState();
+      const { offset, zoom } = state.canvas;
       const position = getCanvasPositionFromEvent(event, offset, zoom);
-      const hasFileDropControls = getVisibleFileDropControls(state).length > 0;
+      const selection = getCanvasDropTarget(state, uploadedFiles);
 
-      uploadedFiles.forEach((uploadedFile) => {
-        const targetControl = getCanvasDropTarget(state, uploadedFile);
-
-        if (!targetControl) {
-          if (hasFileDropControls || !isToolcraftImageFile(uploadedFile)) {
-            return;
-          }
-
-          void readImportedImageFile(uploadedFile, size).then((importedImage) => {
-            if (!importedImage) {
-              return;
-            }
-
-            dispatch({
-              asset: {
-                assetKind: "image",
-                dataUrl: importedImage.dataUrl,
-                fileName: uploadedFile.name,
-                mimeType: uploadedFile.type || "image/*",
-                position,
-                size: importedImage.size,
-              },
-              type: "media.import",
-            });
-          });
-          return;
-        }
-
-        const assetKind = targetControl.assetKind === "file" ? "file" : "image";
-        const replaceExisting = targetControl.multiple !== true;
-
-        if (assetKind === "file") {
-          void readImportedFile(uploadedFile).then((importedFile) => {
-            if (!importedFile) {
-              return;
-            }
-
-            dispatch({
-              asset: {
-                assetKind: "file",
-                dataUrl: importedFile.dataUrl,
-                fileName: uploadedFile.name,
-                mimeType: uploadedFile.type || "application/octet-stream",
-                position: { x: 0, y: 0 },
-                sourceTarget: targetControl.target,
-              },
-              replaceExisting,
-              type: "media.import",
-            });
-          });
-          return;
-        }
-
-        void readImportedImageFile(uploadedFile, size).then((importedImage) => {
-          if (!importedImage) {
-            return;
-          }
-
-          dispatch({
-            asset: {
-              assetKind: "image",
-              dataUrl: importedImage.dataUrl,
-              fileName: uploadedFile.name,
-              mimeType: uploadedFile.type || "image/*",
-              position,
-              size: importedImage.size,
-              sourceTarget: targetControl.target,
-            },
-            replaceExisting,
-            type: "media.import",
-          });
+      if (selection.kind === "ambiguous") {
+        onPresentationChange({
+          directOperation: false,
+          feedback: selection.feedback,
         });
-      });
+        return;
+      }
+
+      if (selection.kind === "none") {
+        onPresentationChange({ directOperation: false, feedback: null });
+        return;
+      }
+
+      const directOperation = selection.control === undefined;
+      onPresentationChange({ directOperation, feedback: null });
+      void coordinator.importBatch(
+        {
+          files: uploadedFiles,
+          origin: "canvas",
+          position,
+          ...(selection.control ? { target: selection.control.target } : {}),
+        },
+        selection.control,
+      ).then(
+        (outcome) => {
+          if (dropSequence.current !== sequence) return;
+          onPresentationChange({
+            directOperation,
+            feedback: outcome.kind === "rejected" ? outcome.feedback : null,
+          });
+        },
+        (error: unknown) => {
+          if (dropSequence.current !== sequence) return;
+          onPresentationChange({
+            directOperation,
+            feedback: {
+              category: "resource-unavailable",
+              code: "import-failed",
+              message: error instanceof Error
+                ? error.message
+                : "The source asset import could not be completed.",
+            },
+          });
+        },
+      );
     },
-    [dispatch, offset, setDragOver, size, state, uploadEnabled, zoom],
+    [coordinator, onPresentationChange, setDragOver, store, uploadEnabled],
   );
 }

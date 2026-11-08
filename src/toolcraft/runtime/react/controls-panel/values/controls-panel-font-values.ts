@@ -27,6 +27,7 @@ export function asFontPickerValue(value: unknown): FontPickerValue {
       fontSize: asNumber(value.fontSize, 16),
       fontWeight: asString(value.fontWeight, "400"),
       letterSpacing:
+        value.letterSpacing === "tightest" ||
         value.letterSpacing === "tighter" ||
         value.letterSpacing === "tight" ||
         value.letterSpacing === "normal" ||
@@ -41,6 +42,7 @@ export function asFontPickerValue(value: unknown): FontPickerValue {
         value.lineHeight === "snug" ||
         value.lineHeight === "normal" ||
         value.lineHeight === "relaxed" ||
+        value.lineHeight === "spacious" ||
         value.lineHeight === "loose"
           ? value.lineHeight
           : "normal",

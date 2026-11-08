@@ -11,8 +11,11 @@ function requirement(
   return {
     automated: true,
     automatedTestName: "acceptance: specialized behavior",
-    browser: true,
-    browserTestName: testName,
+    browser: {
+      budget: "standard",
+      file: "e2e/app-controls.spec.ts",
+      testName: testName,
+    },
     componentType: "runtime",
     evidence: "command-side-effect",
     expectedObservable: "The specialized behavior is visible.",
@@ -27,7 +30,6 @@ function requirement(
 test("specialized acceptance metadata derives executable runtime evidence", () => {
   const requirements = deriveToolcraftBrowserRuntimeRequirements([
     requirement({ canvasHandle: {
-      exportCleanTestName: "browser: export excludes handles",
       outputObservable: "The handle changes output.",
       testId: "focus-handle",
       writesTarget: "focus.position",
@@ -65,6 +67,6 @@ test("specialized acceptance metadata derives executable runtime evidence", () =
     ),
   ).toMatchObject({
     requirementId: "runtime.specialized",
-    testName: "browser: export excludes handles",
+    testName,
   });
 });

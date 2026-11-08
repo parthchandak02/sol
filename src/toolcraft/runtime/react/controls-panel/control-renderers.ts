@@ -2,6 +2,7 @@
 
 import type * as React from "react";
 import type { ControlChangeMeta } from "@/toolcraft/ui";
+import type { ToolcraftBuiltInControlType } from "../../contracts/component-contracts";
 
 import type { ToolcraftControlSchema } from "../../schema/types";
 import type { ToolcraftCommand, ToolcraftState } from "../../state/types";
@@ -28,4 +29,4 @@ export type ToolcraftCustomControlRenderer<Value = unknown> = (
 
 export type ToolcraftControlRendererMap = Readonly<
   Record<string, ToolcraftCustomControlRenderer>
->;
+> & { readonly [K in ToolcraftBuiltInControlType]?: never };

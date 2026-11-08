@@ -5,278 +5,363 @@ import path from "node:path";
 import test from "node:test";
 
 import {
-  TOOLCRAFT_PERFORMANCE_RECEIPT_VERSION,
+  readToolcraftCheckpointBundle,
+  writeToolcraftCheckpointBundle,
+} from "./toolcraft-checkpoint-bundle.mjs";
+import {
+  EMPTY_TOOLCRAFT_DELIVERY_LIFECYCLE_STATE,
+} from "./toolcraft-delivery-lifecycle-state.mjs";
+import {
+  TOOLCRAFT_FULL_PERFORMANCE_VERIFICATION_COMMAND,
+} from "./toolcraft-performance-authority-policy.mjs";
+import { createToolcraftDeliveryReceipt } from "./toolcraft-delivery-receipt.mjs";
+import {
+  createFunctionalProofModelFixture,
+  writeDeliveryReceiptFixture,
+} from "./toolcraft-delivery-receipt-test-helpers.mjs";
+import {
+  createToolcraftFunctionalProofModelHash,
+} from "./toolcraft-functional-proof-model.mjs";
+import {
   collectToolcraftVerificationInputs,
-  getToolcraftPerformanceExemptionBlockedFiles,
-  getToolcraftPerformanceReceiptPath,
-  validateToolcraftPerformanceReceipt,
-  writeToolcraftPerformanceExemption,
 } from "./toolcraft-verification-receipt.mjs";
 import * as receiptModule from "./toolcraft-verification-receipt.mjs";
+import {
+  createReceiptFixture,
+} from "./toolcraft-verification-receipt-test-helpers.mjs";
+import {
+  createToolcraftVerificationSourceHash,
+  getToolcraftChangedVerificationFiles,
+} from "./toolcraft-verification-inventory.mjs";
 
-async function createFixture() {
-  const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "toolcraft-receipt-"));
-  await fs.mkdir(path.join(rootDir, "src", "app"), { recursive: true });
-  await fs.mkdir(path.join(rootDir, "e2e"), { recursive: true });
-  await fs.writeFile(
-    path.join(rootDir, "src", "app", "app-schema.ts"),
-    'export const schema = { mode: "initial" };\n',
+async function createRootWideInventoryFixture() {
+  const rootDir = await fs.mkdtemp(
+    path.join(os.tmpdir(), "toolcraft-root-wide-inventory-"),
   );
-  await fs.writeFile(
-    path.join(rootDir, "e2e", "app-performance.spec.ts"),
-    'export const scenario = "heavy";\n',
-  );
-  await fs.writeFile(
-    path.join(rootDir, "package.json"),
-    JSON.stringify({ name: "receipt-fixture", private: true }),
-  );
+  const files = {
+    ".agents/skills/brainstorming/SKILL.md": "# Brainstorming workflow\n",
+    ".env.production": "PUBLIC_MODE=production\n",
+    ".git/config": "[core]\n",
+    ".toolcraft/verification/checkpoint.json": '{"status":"passed"}\n',
+    "AGENTS.md": "# Generated app instructions\n",
+    "coverage/index.html": "<h1>Coverage</h1>\n",
+    "dist/index.js": "export const bundled = true;\n",
+    "docs/toolcraft/agent-worklog.md": "# Agent worklog\n",
+    "node_modules/pkg/index.js": "export const dependency = true;\n",
+    "package.json": '{"name":"inventory-fixture"}\n',
+    "playwright-report/index.html": "<h1>Playwright report</h1>\n",
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    "public/source.png": "source-image",
+    "skills-lock.json": '{"skills":[]}\n',
+    "src/app/app-schema.ts": "export const schema = {};\n",
+    "test-results/results.json": "{}\n",
+  };
+
+  for (const [relativePath, source] of Object.entries(files)) {
+    const filePath = path.join(rootDir, relativePath);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, source);
+  }
+
   return rootDir;
 }
 
-async function writePassedCheckpointFixture(
-  rootDir,
-  { runner = "playwright-fallback" } = {},
-) {
-  const inventory = await collectToolcraftVerificationInputs(rootDir);
-  const receiptPath = getToolcraftPerformanceReceiptPath(rootDir);
-  await fs.mkdir(path.dirname(receiptPath), { recursive: true });
-  await fs.writeFile(
-    receiptPath,
-    `${JSON.stringify(
+function createInitialReceipt(inventory) {
+  const functionalProofModel = createFunctionalProofModelFixture({
+    acceptanceId: "persistence.reload",
+    contractHash: "c".repeat(64),
+  });
+  const plan = {
+    basis: { kind: "initial" },
+    functionalProofModelHash:
+      createToolcraftFunctionalProofModelHash(functionalProofModel),
+    kind: "functional",
+    lifecycle: EMPTY_TOOLCRAFT_DELIVERY_LIFECYCLE_STATE,
+    manifestHash: "a".repeat(64),
+    sourceHash: inventory.sourceHash,
+    steps: [
+      { kind: "docs" },
+      { kind: "code-health" },
       {
-        completedAt: new Date().toISOString(),
-        files: inventory.entries,
-        kind: "performance-checkpoint",
-        runner,
-        sourceHash: inventory.sourceHash,
-        status: "passed",
-        version: TOOLCRAFT_PERFORMANCE_RECEIPT_VERSION,
+        acceptanceIds: null,
+        files: ["src/app/app-schema.test.ts"],
+        kind: "product-tests",
       },
-      null,
-      2,
-    )}\n`,
-  );
+      { kind: "build" },
+      {
+        kind: "browser-functional",
+        testNames: ["browser: focused acceptance"],
+      },
+    ],
+  };
+  const evidence = [
+    { kind: "docs" },
+    { kind: "code-health" },
+    { files: ["src/app/app-schema.test.ts"], kind: "product-tests" },
+    { kind: "build" },
+    {
+      kind: "browser-functional",
+      testNames: ["browser: focused acceptance"],
+    },
+  ];
+  const freeze = (value) => {
+    if (value && typeof value === "object" && !Object.isFrozen(value)) {
+      Object.values(value).forEach(freeze);
+      Object.freeze(value);
+    }
+    return value;
+  };
+  return createToolcraftDeliveryReceipt({
+    functionalProofModel,
+    plan: freeze(plan),
+    result: { evidence, finalInventory: inventory },
+  });
 }
+
+test("collects one canonical root-wide verification inventory", async (t) => {
+  const rootDir = await createRootWideInventoryFixture();
+  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
+
+  const inventory = await collectToolcraftVerificationInputs(rootDir);
+
+  assert.deepEqual(Object.keys(inventory).sort(), ["entries", "sourceHash"]);
+  assert.deepEqual(
+    inventory.entries.map((entry) => entry.path),
+    [
+      ".env.production",
+      "AGENTS.md",
+      "docs/toolcraft/agent-worklog.md",
+      "package.json",
+      "pnpm-lock.yaml",
+      "public/source.png",
+      "src/app/app-schema.ts",
+    ],
+  );
+  assert.equal(
+    inventory.sourceHash,
+    createToolcraftVerificationSourceHash(inventory.entries),
+  );
+  assert.equal(Object.isFrozen(inventory), true);
+  assert.equal(Object.isFrozen(inventory.entries), true);
+  assert.equal(
+    inventory.entries.every((entry) => Object.isFrozen(entry)),
+    true,
+  );
+
+  await fs.writeFile(
+    path.join(rootDir, "unknown.config.json"),
+    '{"mode":"custom"}\n',
+  );
+  const withUnknownRootConfig =
+    await collectToolcraftVerificationInputs(rootDir);
+  assert.notEqual(withUnknownRootConfig.sourceHash, inventory.sourceHash);
+});
+
+test("ignores workflow skills, generated output, and checkpoint directories throughout the inventory", async (t) => {
+  const rootDir = await createRootWideInventoryFixture();
+  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
+  const baseline = await collectToolcraftVerificationInputs(rootDir);
+
+  for (const ignoredDirectory of [
+    ".agents",
+    ".git",
+    ".toolcraft",
+    "coverage",
+    "dist",
+    "node_modules",
+    "playwright-report",
+    "test-results",
+  ]) {
+    const ignoredFile = path.join(
+      rootDir,
+      ignoredDirectory,
+      "nested",
+      "changed.txt",
+    );
+    await fs.mkdir(path.dirname(ignoredFile), { recursive: true });
+    await fs.writeFile(ignoredFile, `changed ${ignoredDirectory}\n`);
+  }
+  await fs.writeFile(
+    path.join(rootDir, "skills-lock.json"),
+    '{"skills":["updated"]}\n',
+  );
+
+  assert.equal(
+    (await collectToolcraftVerificationInputs(rootDir)).sourceHash,
+    baseline.sourceHash,
+  );
+});
+
+test("ignores browser-tool artifact create change and delete", async (t) => {
+  const rootDir = await createRootWideInventoryFixture();
+  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
+  const baseline = await collectToolcraftVerificationInputs(rootDir);
+  const browserArtifact = path.join(
+    rootDir,
+    ".playwright-mcp",
+    "nested",
+    "page.yml",
+  );
+
+  for (const content of ["page: initial\n", "page: updated\n"]) {
+    await fs.mkdir(path.dirname(browserArtifact), { recursive: true });
+    await fs.writeFile(browserArtifact, content);
+    const current = await collectToolcraftVerificationInputs(rootDir);
+
+    assert.equal(current.sourceHash, baseline.sourceHash);
+    assert.deepEqual(
+      getToolcraftChangedVerificationFiles(baseline.entries, current.entries),
+      [],
+    );
+  }
+
+  await fs.rm(path.join(rootDir, ".playwright-mcp"), {
+    force: true,
+    recursive: true,
+  });
+  const current = await collectToolcraftVerificationInputs(rootDir);
+
+  assert.equal(current.sourceHash, baseline.sourceHash);
+  assert.deepEqual(
+    getToolcraftChangedVerificationFiles(baseline.entries, current.entries),
+    [],
+  );
+});
+
+test("continues to hash real product raster assets", async (t) => {
+  const rootDir = await createRootWideInventoryFixture();
+  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
+  const baseline = await collectToolcraftVerificationInputs(rootDir);
+
+  await fs.writeFile(path.join(rootDir, "public", "source.png"), "updated-source-image");
+  const current = await collectToolcraftVerificationInputs(rootDir);
+
+  assert.notEqual(current.sourceHash, baseline.sourceHash);
+  assert.deepEqual(
+    getToolcraftChangedVerificationFiles(baseline.entries, current.entries),
+    ["public/source.png"],
+  );
+});
+
+test("does not report legacy workflow-skill receipt entries as product changes", async (t) => {
+  const rootDir = await createRootWideInventoryFixture();
+  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
+  const current = await collectToolcraftVerificationInputs(rootDir);
+  const legacyEntries = [
+    {
+      path: ".agents/skills/brainstorming/SKILL.md",
+      sha256: "a".repeat(64),
+    },
+    {
+      path: "skills-lock.json",
+      sha256: "b".repeat(64),
+    },
+    ...current.entries,
+  ];
+
+  assert.deepEqual(
+    getToolcraftChangedVerificationFiles(legacyEntries, current.entries),
+    [],
+  );
+});
+
+test("rejects symbolic links in verification inputs", async (t) => {
+  const rootDir = await createRootWideInventoryFixture();
+  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
+  await fs.symlink(
+    path.join(rootDir, "AGENTS.md"),
+    path.join(rootDir, "linked-agents.md"),
+  );
+
+  await assert.rejects(
+    collectToolcraftVerificationInputs(rootDir),
+    /must not contain symbolic links: linked-agents\.md/u,
+  );
+});
+
+test("rejects non-canonical paths while collecting verification inputs", async (t) => {
+  if (path.sep !== "/") {
+    t.skip("Literal backslashes are path separators off POSIX.");
+    return;
+  }
+  const rootDir = await createRootWideInventoryFixture();
+  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
+  await fs.writeFile(path.join(rootDir, "bad\\name.txt"), "invalid path\n");
+
+  await assert.rejects(
+    collectToolcraftVerificationInputs(rootDir),
+    /non-canonical path: bad\\name\.txt/u,
+  );
+});
 
 test("does not expose a reusable passed-checkpoint writer", () => {
   assert.equal("writeToolcraftPerformanceReceipt" in receiptModule, false);
 });
 
-test("rejects verification inputs that change during a protected checkpoint", () => {
-  const assertStable = receiptModule.assertToolcraftVerificationInputsUnchanged;
-  assert.equal(typeof assertStable, "function");
-  assert.doesNotThrow(() =>
-    assertStable({
-      baseline: { entries: [], sourceHash: "same" },
-      current: { entries: [], sourceHash: "same" },
-      phase: "after build",
-    }),
-  );
-  assert.throws(
-    () =>
-      assertStable({
-        baseline: { entries: [], sourceHash: "before" },
-        current: { entries: [], sourceHash: "after" },
-        phase: "after Playwright",
-      }),
-    /verification inputs changed.*after Playwright/iu,
-  );
-});
-
-test("classifies obvious Tier 3 and Tier 4 paths without blocking ordinary Tier 0-2 files", () => {
-  assert.deepEqual(
-    getToolcraftPerformanceExemptionBlockedFiles([
-      "src/app/app-schema.ts",
-      "src/app/app-acceptance-data.ts",
-      "src/app/app-schema.test.ts",
-      "src/product/control-mapping.ts",
-      "e2e/app-controls.spec.ts",
-      "src/styles/panel.module.css",
-      "package-lock.json",
-      "public/source.png",
-      "scripts/check.mjs",
-      "src/toolcraft/runtime.ts",
-      "src/app/app-composition.tsx",
-      "src/app/app-performance.ts",
-      "src/product/product-output.ts",
-      "src/product/renderer.ts",
-      "src/product/canvas-worker.ts",
-      "src/product/viewport.ts",
-    ]),
-    [
-      "package-lock.json",
-      "public/source.png",
-      "scripts/check.mjs",
-      "src/app/app-composition.tsx",
-      "src/app/app-performance.ts",
-      "src/product/canvas-worker.ts",
-      "src/product/product-output.ts",
-      "src/product/renderer.ts",
-      "src/product/viewport.ts",
-      "src/toolcraft/runtime.ts",
-    ],
-  );
-});
-
-test("requires a structured receipt instead of prose-only performance claims", async (t) => {
-  const rootDir = await createFixture();
+test("full performance recovery points only to the operator command", async (t) => {
+  const rootDir = await createReceiptFixture();
   t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
-  await fs.mkdir(path.join(rootDir, "docs", "toolcraft"), { recursive: true });
-  await fs.writeFile(
-    path.join(rootDir, "docs", "toolcraft", "agent-worklog.md"),
-    "- Run: pnpm verify:perf passed\n",
-  );
 
-  const errors = await validateToolcraftPerformanceReceipt({ rootDir });
-  assert.equal(errors.length, 1);
-  assert.match(errors[0], /performance receipt is missing/iu);
+  assert.deepEqual(await receiptModule.readToolcraftDurablePerformanceBaseline(rootDir), {
+    error: `Toolcraft performance baseline receipt is missing. An operator must run ${TOOLCRAFT_FULL_PERFORMANCE_VERIFICATION_COMMAND} to create one.`,
+    missing: true,
+  });
+  assert.deepEqual(await receiptModule.validateToolcraftPerformanceReceipt({ rootDir }), [
+    `Toolcraft performance receipt is missing. An operator must run ${TOOLCRAFT_FULL_PERFORMANCE_VERIFICATION_COMMAND} to create a full checkpoint.`,
+  ]);
 });
 
-test("accepts a passed receipt only while its source inventory is current", async (t) => {
-  const rootDir = await createFixture();
-  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
-  await writePassedCheckpointFixture(rootDir);
-
-  assert.deepEqual(await validateToolcraftPerformanceReceipt({ rootDir }), []);
-
-  await fs.writeFile(
-    path.join(rootDir, "src", "app", "app-schema.ts"),
-    'export const schema = { mode: "changed" };\n',
-  );
-  const staleErrors = await validateToolcraftPerformanceReceipt({ rootDir });
-  assert.equal(staleErrors.length, 1);
-  assert.match(staleErrors[0], /stale/iu);
-});
-
-test("rejects manual agent-browser receipts without automated runner proof", async (t) => {
-  const rootDir = await createFixture();
-  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
-  await writePassedCheckpointFixture(rootDir, { runner: "agent-browser" });
-
-  assert.match(
-    (await validateToolcraftPerformanceReceipt({ rootDir }))[0],
-    /supported runner/iu,
-  );
-});
-
-test("rejects a receipt whose file inventory does not produce its source hash", async (t) => {
-  const rootDir = await createFixture();
+test("verify receipt accepts current baseline-free delivery authority", async (t) => {
+  const rootDir = await createReceiptFixture();
   t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
   const inventory = await collectToolcraftVerificationInputs(rootDir);
-  const receiptPath = getToolcraftPerformanceReceiptPath(rootDir);
-  await fs.mkdir(path.dirname(receiptPath), { recursive: true });
-  await fs.writeFile(
-    receiptPath,
-    `${JSON.stringify(
-      {
-        completedAt: new Date().toISOString(),
-        files: [],
-        kind: "performance-checkpoint",
-        runner: "playwright-fallback",
-        sourceHash: inventory.sourceHash,
-        status: "passed",
-        version: TOOLCRAFT_PERFORMANCE_RECEIPT_VERSION,
-      },
-      null,
-      2,
-    )}\n`,
-  );
+  await writeDeliveryReceiptFixture(rootDir, createInitialReceipt(inventory));
 
-  assert.match(
-    (await validateToolcraftPerformanceReceipt({ rootDir }))[0],
-    /file inventory.*source hash/iu,
+  assert.equal(typeof receiptModule.validateToolcraftVerificationReceipt, "function");
+  assert.deepEqual(
+    await receiptModule.validateToolcraftVerificationReceipt({ rootDir }),
+    [],
   );
 });
 
-test("invalidates a checkpoint when the npm dependency graph changes", async (t) => {
-  const rootDir = await createFixture();
+test("verify receipt never reads full-performance checkpoint authority", async (t) => {
+  const rootDir = await createReceiptFixture();
   t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
-  const packageLockPath = path.join(rootDir, "package-lock.json");
-  await fs.writeFile(
-    packageLockPath,
-    JSON.stringify({ lockfileVersion: 3, packages: {} }),
-  );
-  await writePassedCheckpointFixture(rootDir);
-
-  await fs.writeFile(
-    packageLockPath,
-    JSON.stringify({
-      lockfileVersion: 3,
-      packages: { "node_modules/example": { version: "2.0.0" } },
-    }),
-  );
-
-  assert.match(
-    (await validateToolcraftPerformanceReceipt({ rootDir }))[0],
-    /stale/iu,
-  );
-});
-
-test("rejects malformed and non-passed receipts", async (t) => {
-  const rootDir = await createFixture();
-  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
-  const receiptPath = getToolcraftPerformanceReceiptPath(rootDir);
-  await fs.mkdir(path.dirname(receiptPath), { recursive: true });
-  await fs.writeFile(receiptPath, "not json");
-  const malformedErrors = await validateToolcraftPerformanceReceipt({ rootDir });
-  assert.equal(malformedErrors.length, 1);
-  assert.match(malformedErrors[0], /malformed/iu);
-
-  await fs.writeFile(
-    receiptPath,
-    JSON.stringify({
-      kind: "performance-checkpoint",
-      files: [],
-      runner: "playwright-fallback",
-      sourceHash: "invalid",
-      status: "failed",
-      version: 1,
-    }),
-  );
-  const failedErrors = await validateToolcraftPerformanceReceipt({ rootDir });
-  assert.equal(failedErrors.length, 1);
-  assert.match(failedErrors[0], /passed/iu);
-});
-
-test("permits only a current typed post-first-working exemption backed by a prior pass", async (t) => {
-  const rootDir = await createFixture();
-  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
-  await writePassedCheckpointFixture(rootDir);
-  await fs.writeFile(
-    path.join(rootDir, "src", "app", "app-schema.ts"),
-    'export const schema = { mode: "non-performance-feature" };\n',
-  );
-  await writeToolcraftPerformanceExemption({
-    reasonCode: "post-first-working-non-performance",
+  const inventory = await collectToolcraftVerificationInputs(rootDir);
+  await writeDeliveryReceiptFixture(rootDir, createInitialReceipt(inventory));
+  const loaded = await readToolcraftCheckpointBundle(rootDir);
+  await writeToolcraftCheckpointBundle({
+    bundle: {
+      ...loaded.bundle,
+      currentPerformance: { malformed: true },
+      performanceBaseline: { malformed: true },
+    },
     rootDir,
-    verificationTier: 2,
+  });
+  assert.deepEqual(
+    await receiptModule.validateToolcraftVerificationReceipt({ rootDir }),
+    [],
+  );
+});
+
+test("verify receipt rejects legacy delivery as current authority", async (t) => {
+  const rootDir = await createReceiptFixture();
+  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
+  const inventory = await collectToolcraftVerificationInputs(rootDir);
+  await writeDeliveryReceiptFixture(rootDir, {
+    checks: ["integrity", "ai-check", "test", "build", "playwright-functional"],
+    completedAt: "2026-07-20T00:00:00.000Z",
+    files: inventory.entries,
+    kind: "delivery-verification",
+    mode: "legacy-delivery",
+    runner: "protected-delivery",
+    sourceHash: inventory.sourceHash,
+    status: "passed",
+    version: 2,
   });
 
-  assert.deepEqual(await validateToolcraftPerformanceReceipt({ rootDir }), []);
-
-  await fs.writeFile(
-    path.join(rootDir, "e2e", "app-performance.spec.ts"),
-    'export const scenario = "changed-after-exemption";\n',
-  );
-  const staleErrors = await validateToolcraftPerformanceReceipt({ rootDir });
-  assert.equal(staleErrors.length, 1);
-  assert.match(staleErrors[0], /stale/iu);
-});
-
-test("rejects exemptions for obvious Tier 3 renderer changes", async (t) => {
-  const rootDir = await createFixture();
-  t.after(() => fs.rm(rootDir, { force: true, recursive: true }));
-  const rendererPath = path.join(rootDir, "src", "product-renderer.ts");
-  await fs.writeFile(rendererPath, "export const render = () => 1;\n");
-  await writePassedCheckpointFixture(rootDir);
-  await fs.writeFile(rendererPath, "export const render = () => 2;\n");
-
-  await assert.rejects(
-    writeToolcraftPerformanceExemption({
-      reasonCode: "post-first-working-non-performance",
-      rootDir,
-      verificationTier: 2,
-    }),
-    /product-renderer\.ts.*pnpm verify:perf/iu,
+  assert.match(
+    (await receiptModule.validateToolcraftVerificationReceipt({ rootDir }))[0],
+    /malformed|unsupported/iu,
   );
 });

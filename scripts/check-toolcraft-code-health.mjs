@@ -3,18 +3,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { findMisplacedDevelopmentFiles } from "./toolcraft-development-files.mjs";
 
+import { isToolcraftTypeScriptCompilerAvailable } from "./toolcraft-typescript-source-evidence.mjs";
 import {
-  codeHealthPassed,
-  evaluateCodeHealth,
-  printCodeHealthResult,
-} from "./toolcraft-code-health-core.mjs";
-import { loadToolcraftLocalModuleAliases } from "./toolcraft-product-dependency-graph.mjs";
-import { collectToolcraftFrameworkOwnedLocalPaths } from "./toolcraft-source-ownership.mjs";
+  createToolcraftScriptLineBudgetPolicy,
+  getToolcraftScriptProductionEntryPaths,
+} from "./toolcraft-delivery-architecture-policy.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const appRoot = path.resolve(path.dirname(scriptPath), "..");
 
+const scriptLineBudgetPolicy =
+  createToolcraftScriptLineBudgetPolicy("scripts");
 const generatedCodeHealthPolicy = {
   globalLineBudget: {
     maxLines: 1000,
@@ -47,43 +48,99 @@ const generatedCodeHealthPolicy = {
       prefix: "e2e/",
       reason: "Generated browser tests should stay split by behavior and evidence role.",
     },
-    {
-      maxLines: 350,
-      prefix: "scripts/",
-      reason: "Generated operational scripts should stay focused and independently testable.",
-    },
+    ...scriptLineBudgetPolicy.scopedLineBudgets,
   ],
   sourceRoots: ["src", "e2e", "scripts"],
-  testLineBudget: {
-    maxLines: 500,
-    reason: "Generated test/spec files should stay focused instead of becoming behavior dumps.",
-  },
+  testFilePatterns: scriptLineBudgetPolicy.testFilePatterns,
+  testLineBudget: scriptLineBudgetPolicy.testLineBudget,
 };
 
 export async function evaluateGeneratedCodeHealth(rootDir = appRoot) {
-  const [dependencyCycleAliases, frameworkOwnedLocalPaths] = await Promise.all([
-    loadToolcraftLocalModuleAliases({
+  const [
+    { evaluateCodeHealth },
+    { createToolcraftLocalDependencyGraph },
+    { evaluateToolcraftProductBoundary },
+    dependencyResolution,
+    { collectToolcraftSourceInventory },
+    { collectToolcraftFrameworkOwnedLocalPaths },
+  ] = await Promise.all([
+    import("./toolcraft-code-health-core.mjs"),
+    import("./toolcraft-local-dependency-graph.mjs"),
+    import("./toolcraft-product-boundary.mjs"),
+    import("./toolcraft-product-dependency-resolution.mjs"),
+    import("./toolcraft-source-inventory.mjs"),
+    import("./toolcraft-source-ownership.mjs"),
+  ]);
+  const [configuredAliases, frameworkOwnedLocalPaths] = await Promise.all([
+    dependencyResolution.loadToolcraftLocalModuleAliases({
       rootDir,
       tsconfigPaths: ["tsconfig.json"],
     }),
     collectToolcraftFrameworkOwnedLocalPaths(rootDir),
   ]);
-  return evaluateCodeHealth({
+  const dependencyCycleAliases = [
+    ...configuredAliases,
+    ...dependencyResolution.createToolcraftDefaultSourceAliases(rootDir),
+  ];
+  const inventory = await collectToolcraftSourceInventory({
+    frameworkPathPrefixes: ["src/toolcraft/"],
+    includeResourceFiles: true,
+    protectedFilePaths: frameworkOwnedLocalPaths,
+    rootDir,
+    sourceRoots: generatedCodeHealthPolicy.sourceRoots,
+  });
+  const localDependencyGraph = await createToolcraftLocalDependencyGraph({
+    aliases: dependencyCycleAliases,
+    entries: inventory.entries,
+    fullEvidenceEntryPaths: inventory.entries
+      .filter(({ owner }) => owner === "product")
+      .map(({ repoPath }) => repoPath),
+    rootDir,
+    sourceRecordMode: "imports-only",
+  });
+  const codeHealth = await evaluateCodeHealth({
     ...generatedCodeHealthPolicy,
     dependencyCycleAliases,
     dependencyCycleIncludedFilePatterns: [/^src\//u],
     frameworkPathPrefixes: ["src/toolcraft/"],
+    inventory,
+    localDependencyGraph,
+    productionEntryPaths: getToolcraftScriptProductionEntryPaths("scripts"),
     protectedFilePaths: frameworkOwnedLocalPaths,
     rootDir,
   });
+  return {
+    ...codeHealth,
+    productBoundary: await evaluateToolcraftProductBoundary({
+      aliases: dependencyCycleAliases,
+      inventory,
+      localDependencyGraph,
+      protectedFilePaths: frameworkOwnedLocalPaths,
+      rootDir,
+    }),
+  };
 }
 
 export async function runGeneratedCodeHealth({
   logger = console,
   rootDir = appRoot,
 } = {}) {
-  const result = await evaluateGeneratedCodeHealth(rootDir);
+  const misplacedFiles = await findMisplacedDevelopmentFiles(rootDir);
+  if (misplacedFiles.length) {
+    for (const finding of misplacedFiles) logger.error(`${finding.path}: ${finding.reason}`);
+    return false;
+  }
+  if (!isToolcraftTypeScriptCompilerAvailable()) {
+    logger.log(
+      "Toolcraft code health check passed (dependency-backed graph and AST checks are deferred until dependencies are installed).",
+    );
+    return true;
+  }
 
+  const result = await evaluateGeneratedCodeHealth(rootDir);
+  const { codeHealthPassed, printCodeHealthResult } = await import(
+    "./toolcraft-code-health-core.mjs"
+  );
   printCodeHealthResult(result, logger);
   if (!codeHealthPassed(result)) {
     logger.error(

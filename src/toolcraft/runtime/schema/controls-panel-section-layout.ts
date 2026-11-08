@@ -1,17 +1,24 @@
 import { TOOLCRAFT_COMPONENT_CONTRACTS } from "../contracts/component-contracts";
-import { createNormalizedControlsRecord } from "./control-schema-normalization";
 import {
   addAutoLayoutGroupsToSection,
   filterLayoutGroupsForControlIds,
 } from "./controls-panel-layout-groups";
+import {
+  deriveSplitToolcraftControlSectionId,
+  preserveToolcraftInternalControlSectionRegistration,
+  registerToolcraftInternalControlSection,
+} from "./controls-panel-section-id";
 import { withImplicitStandaloneSectionTitle } from "./controls-panel-section-titles";
+import {
+  getToolcraftApplicabilityTargets,
+} from "./control-applicability";
 import type {
-  ToolcraftControlSchema,
-  ToolcraftControlSectionSchema,
+  ResolvedToolcraftControlSchema,
+  ResolvedToolcraftControlSectionSchema,
 } from "./types";
 
 function getControlDefaultSectionLayout(
-  control: ToolcraftControlSchema,
+  control: ResolvedToolcraftControlSchema,
 ): "grouped" | "standalone" {
   const contract = (
     TOOLCRAFT_COMPONENT_CONTRACTS as Record<
@@ -26,12 +33,15 @@ function getControlDefaultSectionLayout(
 }
 
 function isControlGatedBySameSectionControl(
-  control: ToolcraftControlSchema,
-  entries: readonly [string, ToolcraftControlSchema][],
+  control: ResolvedToolcraftControlSchema,
+  entries: readonly [string, ResolvedToolcraftControlSchema][],
 ): boolean {
-  const gateTargets = [control.visibleWhen?.target, control.disabledWhen?.target].filter(
-    (target): target is string => Boolean(target),
-  );
+  const gateTargets = [
+    ...getToolcraftApplicabilityTargets(
+      control.applicability,
+    ),
+    ...(control.disabledWhen ? [control.disabledWhen.target] : []),
+  ];
 
   if (gateTargets.length === 0) {
     return false;
@@ -44,8 +54,8 @@ function isControlGatedBySameSectionControl(
 }
 
 function getControlSectionLayout(
-  control: ToolcraftControlSchema,
-  entries: readonly [string, ToolcraftControlSchema][],
+  control: ResolvedToolcraftControlSchema,
+  entries: readonly [string, ResolvedToolcraftControlSchema][],
 ): "grouped" | "standalone" {
   if (isControlGatedBySameSectionControl(control, entries)) {
     return "grouped";
@@ -67,32 +77,57 @@ function getControlSectionLayout(
 }
 
 export function normalizeMixedSectionLayout(
-  section: ToolcraftControlSectionSchema,
-): ToolcraftControlSectionSchema[] {
-  const entries = Object.entries(section.controls);
+  section: ResolvedToolcraftControlSectionSchema,
+): ResolvedToolcraftControlSectionSchema[] {
+  const entries: [string, ResolvedToolcraftControlSchema][] = Object.entries(
+    section.controls,
+  );
 
   if (section.layout === "standalone") {
+    const normalizedSection = addAutoLayoutGroupsToSection(
+      withImplicitStandaloneSectionTitle(section, entries),
+    );
+
     return [
-      addAutoLayoutGroupsToSection(
-        withImplicitStandaloneSectionTitle(section, entries),
+      preserveToolcraftInternalControlSectionRegistration(
+        section,
+        normalizedSection,
       ),
     ];
   }
 
   if (entries.length <= 1) {
-    return [addAutoLayoutGroupsToSection(withImplicitStandaloneSectionTitle(section, entries))];
+    const normalizedSection = addAutoLayoutGroupsToSection(
+      withImplicitStandaloneSectionTitle(section, entries),
+    );
+
+    return [
+      preserveToolcraftInternalControlSectionRegistration(
+        section,
+        normalizedSection,
+      ),
+    ];
   }
 
   const layouts = entries.map(([, control]) => getControlSectionLayout(control, entries));
   const uniqueLayouts = new Set(layouts);
 
   if (uniqueLayouts.size <= 1) {
-    return [addAutoLayoutGroupsToSection(withImplicitStandaloneSectionTitle(section, entries))];
+    const normalizedSection = addAutoLayoutGroupsToSection(
+      withImplicitStandaloneSectionTitle(section, entries),
+    );
+
+    return [
+      preserveToolcraftInternalControlSectionRegistration(
+        section,
+        normalizedSection,
+      ),
+    ];
   }
 
-  const normalizedSections: ToolcraftControlSectionSchema[] = [];
+  const normalizedSections: ResolvedToolcraftControlSectionSchema[] = [];
   let currentLayout = layouts[0];
-  let currentEntries: [string, ToolcraftControlSchema][] = [];
+  let currentEntries: [string, ResolvedToolcraftControlSchema][] = [];
 
   const pushCurrentSection = (): void => {
     if (!currentLayout || currentEntries.length === 0) {
@@ -100,24 +135,33 @@ export function normalizeMixedSectionLayout(
     }
 
     const controlIds = new Set(currentEntries.map(([id]) => id));
+    // Split children keep the authored parent identity and add a target-derived suffix.
+    const id = deriveSplitToolcraftControlSectionId(section.id, currentEntries);
 
     if (currentLayout === "standalone") {
+      const splitSection: ResolvedToolcraftControlSectionSchema = {
+        controls: Object.fromEntries(currentEntries),
+        id,
+        layout: "standalone",
+      };
+      const titledSection = withImplicitStandaloneSectionTitle(
+        splitSection,
+        currentEntries,
+      );
+
       normalizedSections.push(
-        withImplicitStandaloneSectionTitle(
-          {
-            controls: createNormalizedControlsRecord(currentEntries),
-            layout: "standalone",
-          },
-          currentEntries,
-        ),
+        registerToolcraftInternalControlSection(titledSection),
       );
     } else {
+      const splitSection = addAutoLayoutGroupsToSection({
+        ...section,
+        controls: Object.fromEntries(currentEntries),
+        id,
+        layoutGroups: filterLayoutGroupsForControlIds(section.layoutGroups, controlIds),
+      });
+
       normalizedSections.push(
-        addAutoLayoutGroupsToSection({
-          ...section,
-          controls: createNormalizedControlsRecord(currentEntries),
-          layoutGroups: filterLayoutGroupsForControlIds(section.layoutGroups, controlIds),
-        }),
+        registerToolcraftInternalControlSection(splitSection),
       );
     }
   };

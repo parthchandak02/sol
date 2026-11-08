@@ -1,6 +1,6 @@
 import { TOOLCRAFT_COMPONENT_CONTRACTS } from "../contracts/component-contracts";
+import type { ResolvedToolcraftAppCapabilities } from "./app-capabilities";
 import type {
-  ResolvedToolcraftAppSchema,
   ResolvedToolcraftPanelsSchema,
   ToolcraftAssemblyCapability,
   ToolcraftAssemblyCommand,
@@ -9,6 +9,7 @@ import type {
   ToolcraftAssemblyPanelContract,
   ToolcraftToolbarSchema,
 } from "./types";
+import type { ResolvedToolcraftAppSchema } from "./resolved-app-schema";
 
 type PanelContract = {
   capabilities?: readonly string[];
@@ -21,10 +22,12 @@ function unique<const Value extends string>(values: readonly Value[]): Value[] {
   return Array.from(new Set(values));
 }
 
-function getPanelDragMode(
-  contract: { capabilities?: readonly string[] },
-): ToolcraftAssemblyPanelContract["dragMode"] {
-  return contract.capabilities?.includes("dragMode:handle") ? "handle" : "panel";
+function getPanelDragMode(contract: {
+  capabilities?: readonly string[];
+}): ToolcraftAssemblyPanelContract["dragMode"] {
+  return contract.capabilities?.includes("dragMode:handle")
+    ? "handle"
+    : "panel";
 }
 
 function createPanelAssemblyContract({
@@ -50,6 +53,7 @@ function createPanelAssemblyContract({
     ? unique<ToolcraftAssemblyCommand>([
         "panels.setOffset",
         "panels.setHidden",
+        "panels.update",
         "panels.resetOffset",
         ...commands,
       ])
@@ -68,10 +72,12 @@ function createPanelAssemblyContract({
 }
 
 export function createToolcraftAssemblyContract({
+  appCapabilities,
   canvas,
   panels,
   toolbar,
 }: {
+  appCapabilities: ResolvedToolcraftAppCapabilities;
   canvas: ResolvedToolcraftAppSchema["canvas"];
   panels: ResolvedToolcraftPanelsSchema;
   toolbar: Required<ToolcraftToolbarSchema>;
@@ -79,14 +85,15 @@ export function createToolcraftAssemblyContract({
   const components: ToolcraftAssemblyComponentId[] = [];
   const capabilities: ToolcraftAssemblyCapability[] = [];
   const commands: ToolcraftAssemblyCommand[] = [];
-  const toolbarEnabled = toolbar.history || toolbar.radar || toolbar.theme || toolbar.zoom;
+  const toolbarEnabled =
+    toolbar.history || toolbar.radar || toolbar.theme || toolbar.zoom;
   const canvasEditableSize = canvas.sizing.mode === "editable-output";
 
   if (canvas.enabled) {
     components.push("canvas");
 
     if (canvasEditableSize) {
-      capabilities.push("canvas.editableSize");
+      capabilities.push("canvas.editableSize", "canvas.infinity");
       commands.push("canvas.setSize");
     }
 
@@ -101,18 +108,31 @@ export function createToolcraftAssemblyContract({
 
     if (canvas.upload) {
       capabilities.push("canvas.upload");
-      commands.push("media.delete", "media.import", "media.reorder", "media.transform");
     }
+  }
+
+  if (appCapabilities.hasMedia) {
+    commands.push(
+      "media.delete",
+      "media.importBatch",
+      "media.reorder",
+      "media.transform",
+    );
   }
 
   const controlsPanel = panels.controls
     ? createPanelAssemblyContract({
         capabilities: ["controls.panel", "controls.defaults"],
         commands: [
+          "controls.addCollectionItem",
           "controls.apply",
+          "controls.removeCollectionItem",
           "controls.reset",
           "controls.resetTargets",
+          "controls.selectCollectionItem",
+          "controls.setCollectionItemField",
           "controls.setValue",
+          "panels.setSectionCollapsed",
         ],
         contract: TOOLCRAFT_COMPONENT_CONTRACTS.controlsPanel,
         enabled: true,
@@ -161,7 +181,9 @@ export function createToolcraftAssemblyContract({
           "timeline.duration",
           "timeline.panel",
           "timeline.playback",
-          ...(timelineKeyframesEnabled ? (["timeline.keyframes"] as const) : []),
+          ...(timelineKeyframesEnabled
+            ? (["timeline.keyframes"] as const)
+            : []),
         ],
         commands: [
           "timeline.setCurrentTime",
@@ -237,6 +259,7 @@ export function createToolcraftAssemblyContract({
         capabilities: canvas.enabled
           ? unique<ToolcraftAssemblyCapability>([
               ...(canvasEditableSize ? (["canvas.editableSize"] as const) : []),
+              ...(canvasEditableSize ? (["canvas.infinity"] as const) : []),
               ...(canvas.draggable ? (["canvas.draggable"] as const) : []),
               ...(canvas.upload ? (["canvas.upload"] as const) : []),
             ])
@@ -245,12 +268,16 @@ export function createToolcraftAssemblyContract({
           ? unique<ToolcraftAssemblyCommand>([
               ...(canvasEditableSize ? (["canvas.setSize"] as const) : []),
               ...(canvas.draggable
-                ? (["canvas.panBy", "canvas.setOffset", "canvas.setViewport"] as const)
+                ? ([
+                    "canvas.panBy",
+                    "canvas.setOffset",
+                    "canvas.setViewport",
+                  ] as const)
                 : []),
               ...(canvas.upload
                 ? ([
                     "media.delete",
-                    "media.import",
+                    "media.importBatch",
                     "media.reorder",
                     "media.transform",
                   ] as const)

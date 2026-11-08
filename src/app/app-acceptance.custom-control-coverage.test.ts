@@ -1,31 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { defineToolcraft } from "@/toolcraft/runtime";
 
-import { validateContractAcceptance } from "./app-acceptance.contract-fixtures";
+import {
+  defineContractSchemaFixture,
+  validateContractAcceptance,
+} from "./app-acceptance.contract-fixtures";
 
 describe("starter acceptance custom control coverage contract", () => {
   it("requires custom controls to explain why they are custom and prove minimal runtime UI", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                glyphRamp: {
-                  defaultValue: [],
-                  label: "Glyph ramp",
-                  orderRole: "input",
-                  target: "glyph.ramp",
-                  type: "glyphRamp",
-                } as never,
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-1",
+                controls: {
+                  glyphRamp: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: [],
+                    label: "Glyph ramp",
+                    orderRole: "input",
+                    target: "glyph.ramp",
+                    type: "glyphRamp",
+                  } as never,
+                },
+                title: "Glyphs",
               },
-              title: "Glyphs",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     expect(
@@ -35,11 +44,15 @@ describe("starter acceptance custom control coverage contract", () => {
           {
             automated: true,
             automatedTestName: "glyph ramp changes output",
-            browser: true,
-            browserTestName: "browser: glyph ramp changes output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: glyph ramp changes output",
+            },
             componentType: "glyphRamp",
             evidence: "product-output",
-            expectedObservable: "Choosing and ordering glyphs changes the rendered product output.",
+            expectedObservable:
+              "Choosing and ordering glyphs changes the rendered product output.",
             fixture: "glyph ramp fixture",
             id: "glyph.ramp",
             kind: "control",
@@ -54,27 +67,34 @@ describe("starter acceptance custom control coverage contract", () => {
   });
 
   it("requires custom controls to include a built-in fit check", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                glyphRamp: {
-                  defaultValue: [],
-                  label: "Glyph ramp",
-                  orderRole: "input",
-                  target: "glyph.ramp",
-                  type: "glyphRamp",
-                } as never,
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-2",
+                controls: {
+                  glyphRamp: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: [],
+                    label: "Glyph ramp",
+                    orderRole: "input",
+                    target: "glyph.ramp",
+                    type: "glyphRamp",
+                  } as never,
+                },
+                title: "Glyphs",
               },
-              title: "Glyphs",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     expect(
@@ -84,8 +104,11 @@ describe("starter acceptance custom control coverage contract", () => {
           {
             automated: true,
             automatedTestName: "glyph ramp changes output",
-            browser: true,
-            browserTestName: "browser: glyph ramp changes output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: glyph ramp changes output",
+            },
             componentType: "glyphRamp",
             customControlCoverage: [
               "built-in-gap",
@@ -95,7 +118,8 @@ describe("starter acceptance custom control coverage contract", () => {
               "runtime-state",
             ],
             evidence: "product-output",
-            expectedObservable: "Choosing and ordering glyphs changes the rendered product output.",
+            expectedObservable:
+              "Choosing and ordering glyphs changes the rendered product output.",
             fixture: "glyph ramp fixture",
             id: "glyph.ramp",
             kind: "control",

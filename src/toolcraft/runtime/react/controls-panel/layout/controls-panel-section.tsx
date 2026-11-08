@@ -1,5 +1,4 @@
 "use client";
-
 import * as React from "react";
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react";
 import {
@@ -8,394 +7,404 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  type ControlChangeMeta,
 } from "@/toolcraft/ui";
 
-import type {
-  ToolcraftControlSectionSchema,
-  ToolcraftControlSchema,
-} from "../../../schema/types";
+import type { ResolvedToolcraftControlSectionSchema } from "../../../schema/types";
+import { toolcraftRuntimeDefaultsSectionId } from "../../../schema/runtime-defaults-section";
+import type { ToolcraftStoreDependency } from "../../../state/toolcraft-external-store-dependencies";
 import type {
   ToolcraftCommand,
   ToolcraftState,
+  ToolcraftTimelineKeyframeGroup,
 } from "../../../state/types";
+import { useToolcraftDependencySelector } from "../../app-shell/toolcraft-selectors";
 import type { ToolcraftControlRendererMap } from "../control-renderers";
+import { getControlsPanelTargetDependencies } from "../conditions/control-condition-dependencies";
+import { getToolcraftTargetValue } from "../conditions/control-conditions";
+import {
+  createControlsPanelKeyframeActions,
+  getControlsPanelSectionHeaderKeyframeEntry,
+} from "../keyframes/controls-panel-keyframes";
 import type { ActionControlRunAction } from "../renderers/controls-panel-action-renderer";
-import { renderActionControl } from "../renderers/controls-panel-action-renderer";
-import { renderBasicControl } from "../renderers/controls-panel-basic-renderers";
-import { renderCollectionActionsControl } from "../renderers/controls-panel-collection-renderer";
+import { formatControlValueLabel } from "../values/controls-panel-values";
 import {
-  renderCompoundColorGroup,
-  renderCompoundControl,
-} from "../renderers/controls-panel-compound-renderers";
-import { withControlLabelHelp } from "./controls-panel-help";
-import type { ControlsPanelKeyframeActions } from "../keyframes/controls-panel-keyframes";
-import {
-  type ControlEntry,
-  getControlName,
-  getControlRenderGroupIds,
-  getControlRenderGroups,
-  getControlsRecord,
-  getRenderedControlsSectionTitle,
-  isColorOnlySection,
-  isRuntimeSetupSection,
-  shouldShowColorFieldLabel,
-  withCompoundControlSectionDivider,
-} from "./controls-panel-layout";
-import { renderFileDropControl } from "../renderers/controls-panel-media-renderer";
-import { renderSettingsTransferControl } from "../renderers/controls-panel-settings-transfer-renderer";
-import { getToolcraftControlRendererKind } from "../renderers/controls-panel-renderer-registry";
+  ControlsPanelControlGroup,
+  type ControlsPanelSetControlValue,
+} from "./controls-panel-control-group";
 import {
   getInlineLayoutGroupByControlId,
   renderControlLayoutGroups,
   shouldHideToggleParameterControlLabel,
 } from "./controls-panel-inline-layout";
-import { getControlsPanelSectionCollapseKey } from "./controls-panel-collapse-storage";
+import {
+  type ControlEntry,
+  getControlName,
+  getControlRenderGroupIds,
+  getControlRenderGroups,
+  getControlsPanelRenderableEntries,
+  getControlsRecord,
+  getRenderedControlsSectionTitle,
+  isColorOnlySection,
+} from "./controls-panel-layout";
 
-export type ControlsPanelSetControlValue = (
-  target: string,
-  value: unknown,
-  label?: string,
-  meta?: ControlChangeMeta,
-) => void;
-
-export type ControlsPanelSectionProps = {
-  collapsedSectionByKey: Record<string, boolean>;
+export type ControlsPanelSectionGroupsArgs = {
   controlRenderers?: ToolcraftControlRendererMap;
   dispatch: React.Dispatch<ToolcraftCommand>;
   dispatchCommand: (command: ToolcraftCommand) => void;
   entries: readonly ControlEntry[];
-  getControlValue: (control: ToolcraftControlSchema) => unknown;
-  isControlDisabled: (control: ToolcraftControlSchema) => boolean;
-  keyframeActions: ControlsPanelKeyframeActions;
-  onSectionCollapsedChange: (
-    sectionCollapseKey: string,
-    collapsed: boolean,
-  ) => void;
-  panelSectionKey: React.Key;
+  headerKeyframeTarget: string | null;
+  keyframesSupported: boolean;
   runAction: ActionControlRunAction;
-  section: ToolcraftControlSectionSchema;
-  sectionIndex: number;
+  section: ResolvedToolcraftControlSectionSchema;
   setControlValue: ControlsPanelSetControlValue;
-  state: ToolcraftState;
   vectorPadShape: "compact" | "square";
 };
 
-function getSectionResetAction({
-  dispatchCommand,
-  sectionTitle,
-  targets,
-}: {
+export type ControlsPanelSectionProps = Omit<
+  ControlsPanelSectionGroupsArgs,
+  "headerKeyframeTarget"
+> & {
+  "data-toolcraft-panel-section": "";
+  actionGroup: ResolvedToolcraftControlSectionSchema["actionGroup"];
+  collapsed: boolean;
+  onCollapsedChange: (sectionCollapseKey: string, collapsed: boolean) => void;
+  sectionCollapseKey: string;
+  sectionNavigationId?: string;
+};
+
+type ControlsPanelSectionHeaderActionProps = {
   dispatchCommand: (command: ToolcraftCommand) => void;
-  sectionTitle: string;
-  targets: readonly string[];
-}): React.ReactNode {
-  const label = `Reset ${sectionTitle} section`;
+  entries: readonly ControlEntry[];
+  headerKeyframeTarget: string | null;
+  keyframesSupported: boolean;
+  renderedSectionTitle: React.ReactNode;
+  resetEnabled: boolean;
+  sectionControls: ResolvedToolcraftControlSectionSchema["controls"];
+};
 
+type SectionKeyframeSelection = {
+  group: ToolcraftTimelineKeyframeGroup | undefined;
+  keyframeControlsEnabled: boolean;
+  selectedKeyframeId: string | null;
+  value: unknown;
+};
+
+function sectionKeyframeSelectionsEqual(
+  previous: SectionKeyframeSelection,
+  next: SectionKeyframeSelection,
+): boolean {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            aria-label={label}
-            data-control-section-reset-button=""
-            onClick={() => {
-              dispatchCommand({
-                label,
-                targets: Array.from(new Set(targets)),
-                type: "controls.resetTargets",
-              });
-            }}
-            size="icon-sm"
-            type="button"
-            variant="ghost"
-          />
-        }
-      >
-        <ArrowCounterClockwiseIcon />
-      </TooltipTrigger>
-      <TooltipContent side="top">{label}</TooltipContent>
-    </Tooltip>
+    Object.is(previous.group, next.group) &&
+    previous.keyframeControlsEnabled === next.keyframeControlsEnabled &&
+    previous.selectedKeyframeId === next.selectedKeyframeId &&
+    Object.is(previous.value, next.value)
   );
 }
 
-function withControlTargetBoundary({
-  controlIds,
-  node,
-  targets,
-}: {
-  controlIds: readonly string[];
-  node: React.ReactNode;
-  targets: readonly string[];
-}): React.ReactNode {
-  const uniqueControlIds = [...new Set(controlIds)];
-  const uniqueTargets = [...new Set(targets)];
+function getHeaderKeyframeDependencies(
+  target: string | null,
+): ToolcraftStoreDependency[] {
+  if (!target) {
+    return [];
+  }
 
+  return [
+    ...getControlsPanelTargetDependencies([target]),
+    { kind: "keyframeGroup", target },
+    { kind: "keyframeSelection", target },
+    { kind: "timeline.expanded" },
+  ];
+}
+
+function entriesEqual(
+  previous: readonly ControlEntry[],
+  next: readonly ControlEntry[],
+): boolean {
   return (
-    <div
-      className="contents"
-      data-toolcraft-control-id={
-        uniqueControlIds.length === 1 ? uniqueControlIds[0] : undefined
-      }
-      data-toolcraft-control-ids={
-        uniqueControlIds.length > 1 ? JSON.stringify(uniqueControlIds) : undefined
-      }
-      data-toolcraft-control-target={
-        uniqueTargets.length === 1 ? uniqueTargets[0] : undefined
-      }
-      data-toolcraft-control-targets={
-        uniqueTargets.length > 1 ? JSON.stringify(uniqueTargets) : undefined
-      }
-      key={`control-target-boundary:${uniqueControlIds.join("|")}`}
-    >
-      {node}
-    </div>
+    previous.length === next.length &&
+    previous.every(
+      ([id, control], index) =>
+        id === next[index]?.[0] && Object.is(control, next[index]?.[1]),
+    )
   );
 }
 
-export function renderControlsPanelSection({
-  collapsedSectionByKey,
+function sectionPropsEqual(
+  previous: ControlsPanelSectionProps,
+  next: ControlsPanelSectionProps,
+): boolean {
+  return (
+    previous.actionGroup === next.actionGroup &&
+    previous.collapsed === next.collapsed &&
+    previous.controlRenderers === next.controlRenderers &&
+    previous.dispatch === next.dispatch &&
+    previous.dispatchCommand === next.dispatchCommand &&
+    entriesEqual(previous.entries, next.entries) &&
+    previous.keyframesSupported === next.keyframesSupported &&
+    previous.onCollapsedChange === next.onCollapsedChange &&
+    previous.runAction === next.runAction &&
+    previous.section === next.section &&
+    previous.sectionCollapseKey === next.sectionCollapseKey &&
+    previous.sectionNavigationId === next.sectionNavigationId &&
+    previous.setControlValue === next.setControlValue &&
+    previous.vectorPadShape === next.vectorPadShape
+  );
+}
+
+export const ControlsPanelSectionHeaderAction = React.memo(
+  function ControlsPanelSectionHeaderAction({
+    dispatchCommand,
+    entries,
+    headerKeyframeTarget,
+    keyframesSupported,
+    renderedSectionTitle,
+    resetEnabled,
+    sectionControls,
+  }: ControlsPanelSectionHeaderActionProps): React.JSX.Element | null {
+    const headerKeyframeEntry =
+      keyframesSupported && headerKeyframeTarget
+        ? getControlsPanelSectionHeaderKeyframeEntry(
+            entries,
+            renderedSectionTitle,
+          )
+        : null;
+    const dependencies = React.useMemo(
+      () => getHeaderKeyframeDependencies(headerKeyframeTarget),
+      [headerKeyframeTarget],
+    );
+    const selection = useToolcraftDependencySelector(
+      React.useCallback(
+        (state: ToolcraftState): SectionKeyframeSelection => {
+          const group = headerKeyframeTarget
+            ? state.timeline.keyframeGroups.find(
+                (candidate) => candidate.controlId === headerKeyframeTarget,
+              )
+            : undefined;
+
+          return {
+            group,
+            keyframeControlsEnabled:
+              headerKeyframeTarget !== null && state.timeline.expanded,
+            selectedKeyframeId:
+              group?.keyframes.some(
+                (keyframe) => keyframe.id === state.timeline.selectedKeyframeId,
+              ) === true
+                ? state.timeline.selectedKeyframeId
+                : null,
+            value: headerKeyframeTarget
+              ? getToolcraftTargetValue(state, headerKeyframeTarget)
+              : undefined,
+          };
+        },
+        [headerKeyframeTarget],
+      ),
+      sectionKeyframeSelectionsEqual,
+      dependencies,
+    );
+    const getControlValue = (): unknown =>
+      selection.value ?? headerKeyframeEntry?.[1].defaultValue;
+    const keyframeActions = createControlsPanelKeyframeActions({
+      dispatchCommand,
+      formatValueLabel: formatControlValueLabel,
+      getControlName,
+      getControlValue,
+      keyframeControlsEnabled: selection.keyframeControlsEnabled,
+      keyframedControlIds: new Set(
+        selection.group ? [selection.group.controlId] : [],
+      ),
+      keyframeGroups: selection.group ? [selection.group] : [],
+      selectedKeyframeId: selection.selectedKeyframeId,
+    });
+    const keyframeAction = headerKeyframeEntry
+      ? keyframeActions.getSectionHeaderKeyframeAction(headerKeyframeEntry)
+      : null;
+    const resetLabel = `Reset ${
+      typeof renderedSectionTitle === "string"
+        ? renderedSectionTitle
+        : "section"
+    } section`;
+
+    if (!keyframeAction && !resetEnabled) {
+      return null;
+    }
+
+    return (
+      <>
+        {keyframeAction}
+        {resetEnabled ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label={resetLabel}
+                  data-control-section-reset-button=""
+                  onClick={() => {
+                    dispatchCommand({
+                      label: resetLabel,
+                      targets: Array.from(
+                        new Set(Object.values(sectionControls).map((control) => control.target)),
+                      ),
+                      type: "controls.resetTargets",
+                    });
+                  }}
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                />
+              }
+            >
+              <ArrowCounterClockwiseIcon />
+            </TooltipTrigger>
+            <TooltipContent side="top">{resetLabel}</TooltipContent>
+          </Tooltip>
+        ) : null}
+      </>
+    );
+  },
+);
+
+export const ControlsPanelSection = React.memo(function ControlsPanelSection({
+  actionGroup,
+  collapsed,
   controlRenderers,
   dispatch,
   dispatchCommand,
   entries,
-  getControlValue,
-  isControlDisabled,
-  keyframeActions,
-  onSectionCollapsedChange,
-  panelSectionKey,
+  keyframesSupported,
+  onCollapsedChange,
   runAction,
   section,
-  sectionIndex,
+  sectionCollapseKey,
+  sectionNavigationId,
   setControlValue,
-  state,
   vectorPadShape,
 }: ControlsPanelSectionProps): React.JSX.Element {
-  const {
-    getKeyframeLabelAction,
-    getSectionHeaderKeyframeAction,
-    getSectionHeaderKeyframeEntry,
-    maybeUpsertControlKeyframe,
-    withKeyframeLabelAction,
-  } = keyframeActions;
-  const visibleControls = getControlsRecord(entries);
-  const sectionHasOnlyColorFields = isColorOnlySection(entries);
-  const isRuntimeSetup = isRuntimeSetupSection({ entries, section });
-  const renderedSectionTitle = isRuntimeSetup
+  const renderableEntries = getControlsPanelRenderableEntries(entries);
+  const isDefaultsSection = section.id === toolcraftRuntimeDefaultsSectionId;
+  const renderedSectionTitle = isDefaultsSection
     ? undefined
     : getRenderedControlsSectionTitle(section);
-  const sectionSpacing = "default";
-  const sectionCollapseKey = getControlsPanelSectionCollapseKey({
-    entries,
-    section,
-    sectionIndex,
-  });
-  const isSectionCollapsible = !isRuntimeSetup && renderedSectionTitle !== undefined;
-  const isSectionCollapsed =
-    isSectionCollapsible && collapsedSectionByKey[sectionCollapseKey] === true;
-  const headerKeyframeEntry = getSectionHeaderKeyframeEntry(entries, section.title);
+  const isSectionCollapsible = renderedSectionTitle !== undefined;
+  const headerKeyframeEntry = keyframesSupported
+    ? getControlsPanelSectionHeaderKeyframeEntry(entries, section.title)
+    : null;
   const headerKeyframeTarget = headerKeyframeEntry?.[1].target ?? null;
-  const headerKeyframeAction = headerKeyframeEntry
-    ? getSectionHeaderKeyframeAction(headerKeyframeEntry)
-    : null;
-  const sectionResetAction = isSectionCollapsible
-    ? getSectionResetAction({
+
+  return (
+    <PanelSection
+      data-toolcraft-controls-section-anchor={sectionNavigationId}
+      action={
+        isSectionCollapsible || headerKeyframeTarget ? (
+          <ControlsPanelSectionHeaderAction
+            dispatchCommand={dispatchCommand}
+            entries={entries}
+            headerKeyframeTarget={headerKeyframeTarget}
+            keyframesSupported={keyframesSupported}
+            renderedSectionTitle={section.title}
+            resetEnabled={isSectionCollapsible}
+            sectionControls={section.controls}
+          />
+        ) : undefined
+      }
+      actionGroup={actionGroup}
+      allowCompoundDividers={renderableEntries.length > 1}
+      collapsed={isSectionCollapsible && collapsed}
+      collapsible={isSectionCollapsible}
+      description={section.description}
+      onCollapsedChange={(nextCollapsed) => {
+        onCollapsedChange(sectionCollapseKey, nextCollapsed);
+      }}
+      spacing={isDefaultsSection ? "technical" : "default"}
+      title={renderedSectionTitle}
+    >
+      {getControlsPanelSectionGroups({
+        controlRenderers,
+        dispatch,
         dispatchCommand,
-        sectionTitle:
-          typeof renderedSectionTitle === "string" ? renderedSectionTitle : "section",
-        targets: entries.map(([, control]) => control.target),
-      })
-    : null;
-  const sectionHeaderAction =
-    headerKeyframeAction || sectionResetAction ? (
-      <>
-        {headerKeyframeAction}
-        {sectionResetAction}
-      </>
-    ) : undefined;
+        entries,
+        headerKeyframeTarget,
+        keyframesSupported,
+        runAction,
+        section,
+        setControlValue,
+        vectorPadShape,
+      })}
+    </PanelSection>
+  );
+}, sectionPropsEqual);
+
+export function getControlsPanelSectionGroups({
+  controlRenderers,
+  dispatch,
+  dispatchCommand,
+  entries,
+  headerKeyframeTarget,
+  keyframesSupported,
+  runAction,
+  section,
+  setControlValue,
+  vectorPadShape,
+}: ControlsPanelSectionGroupsArgs): React.ReactNode[] {
+  const renderableEntries = getControlsPanelRenderableEntries(entries);
+  const visibleControls = getControlsRecord(renderableEntries);
+  const sectionHasOnlyColorFields = isColorOnlySection(renderableEntries);
   const inlineLayoutGroupByControlId = getInlineLayoutGroupByControlId({
     controlsById: visibleControls,
     layoutGroups: section.layoutGroups,
   });
+  const renderedGroups = getControlRenderGroups(
+    renderableEntries,
+    sectionHasOnlyColorFields,
+  ).map(
+    (group) => {
+      const ids = getControlRenderGroupIds(group);
+      const groupEntries =
+        group.kind === "colorGroup" ? group.entries : [group.entry];
+      const singleEntry = group.kind === "control" ? group.entry : undefined;
+      const inlineLayoutGroup = singleEntry
+        ? inlineLayoutGroupByControlId.get(singleEntry[0])
+        : undefined;
+      const hasVisibleInlinePeer = inlineLayoutGroup?.controls.some(
+        (id) => id !== singleEntry?.[0] && visibleControls[id],
+      ) ?? false;
 
-  return (
-    <PanelSection
-      action={sectionHeaderAction}
-      actionGroup={section.actionGroup}
-      allowCompoundDividers={entries.length > 1}
-      collapsed={isSectionCollapsed}
-      collapsible={isSectionCollapsible}
-      key={panelSectionKey}
-      onCollapsedChange={(collapsed) => {
-        onSectionCollapsedChange(sectionCollapseKey, collapsed);
-      }}
-      spacing={sectionSpacing}
-      title={renderedSectionTitle}
-    >
-      {renderControlLayoutGroups({
-        controlsById: visibleControls,
-        layoutGroups: section.layoutGroups,
-        renderedGroups: getControlRenderGroups(entries).map((group) => {
-          const ids = getControlRenderGroupIds(group);
-
-          if (group.kind === "colorGroup") {
-            return {
-              ids,
-              node: withControlTargetBoundary({
-                controlIds: ids,
-                node: renderCompoundColorGroup({
-                  entries: group.entries,
-                  getControlName,
-                  getControlValue,
-                  headerKeyframeTarget,
-                  maybeUpsertControlKeyframe,
-                  sectionHasOnlyColorFields,
-                  setControlValue,
-                  shouldShowColorFieldLabel,
-                  withKeyframeLabelAction,
-                }),
-                targets: group.entries.map(([, control]) => control.target),
-              }),
-            };
-          }
-
-          const [id, rawControl] = group.entry;
-          const inlineLayoutGroup = inlineLayoutGroupByControlId.get(id);
-          const disabled = isControlDisabled(rawControl);
-          const resolvedControl =
-            disabled === Boolean(rawControl.disabled)
-              ? rawControl
-              : { ...rawControl, disabled };
-          const shouldHideLabel = shouldHideToggleParameterControlLabel({
-            control: resolvedControl,
-            controlsById: visibleControls,
-            layoutGroup: inlineLayoutGroup,
-          });
-          const control =
-            shouldHideLabel && resolvedControl.label !== false
-              ? { ...resolvedControl, label: false }
-              : resolvedControl;
-          const name = getControlName(id, resolvedControl.label);
-          const value = getControlValue(control);
-          const usesHeaderKeyframeAction = control.target === headerKeyframeTarget;
-          const commitWithLabel =
-            (label: string) =>
-            (nextValue: unknown, meta?: ControlChangeMeta): void => {
-              setControlValue(control.target, nextValue, label, meta);
-              maybeUpsertControlKeyframe(control, label, nextValue);
-            };
-          const commit = commitWithLabel(name);
-          const node = (() => {
-            switch (getToolcraftControlRendererKind(control.type)) {
-              case "action":
-                return renderActionControl({
-                  control,
-                  id,
-                  name,
-                  runAction,
-                });
-
-              case "basic":
-                return renderBasicControl({
-                  commit,
-                  control,
-                  id,
-                  name,
-                  usesHeaderKeyframeAction,
-                  value,
-                  vectorPadShape,
-                  withKeyframeLabelAction,
-                });
-
-              case "compound":
-                return renderCompoundControl({
-                  commit,
-                  commitWithLabel,
-                  control,
-                  id,
-                  name,
-                  sectionHasOnlyColorFields,
-                  shouldShowColorFieldLabel,
-                  usesHeaderKeyframeAction,
-                  value,
-                  withKeyframeLabelAction,
-                });
-
-              case "collection":
-                return renderCollectionActionsControl({
-                  control,
-                  name,
-                  setControlValue,
-                  value,
-                });
-
-              case "media":
-                return renderFileDropControl({
-                  canvasSize: state.canvas.size,
-                  control,
-                  dispatchCommand,
-                  id,
-                  mediaAssets: state.schema.panels.layers ? [] : state.mediaAssets,
-                });
-
-              case "settings":
-                return renderSettingsTransferControl({
-                  dispatch,
-                  id,
-                  state,
-                });
-
-              case null: {
-                const CustomControl = controlRenderers?.[control.type];
-
-                if (!CustomControl) {
-                  return null;
-                }
-
-                return withKeyframeLabelAction({
-                  children: (
-                    <React.Fragment key={id}>
-                      {CustomControl({
-                        control,
-                        controlId: id,
-                        dispatch,
-                        keyframeAction: getKeyframeLabelAction(control, name, value),
-                        name,
-                        setValue: commit,
-                        state,
-                        value,
-                      })}
-                    </React.Fragment>
-                  ),
-                  control,
-                  disableAction: usesHeaderKeyframeAction,
-                  name,
-                  providerKey: id,
-                  value,
-                });
-              }
+      return {
+        ids,
+        node: (
+          <ControlsPanelControlGroup
+            plainColorFullWidth={group.kind === "control" && (
+              group.plainColorFullWidth === true || hasVisibleInlinePeer
+            )}
+            controlRenderers={controlRenderers}
+            dispatch={dispatch}
+            dispatchCommand={dispatchCommand}
+            entries={groupEntries}
+            headerKeyframeTarget={headerKeyframeTarget}
+            hideControlLabel={
+              singleEntry
+                ? shouldHideToggleParameterControlLabel({
+                    control: singleEntry[1],
+                    controlsById: visibleControls,
+                    layoutGroup: inlineLayoutGroup,
+                  })
+                : false
             }
-          })();
-
-          return {
-            ids,
-            node: withControlTargetBoundary({
-              controlIds: ids,
-              node: withCompoundControlSectionDivider({
-                children: withControlLabelHelp({
-                  children: node,
-                  control,
-                  label: name,
-                  providerKey: id,
-                  sectionTitle: section.title,
-                }),
-                control,
-              }),
-              targets: [control.target],
-            }),
-          };
-        }),
-      })}
-    </PanelSection>
+            key={ids.join("|")}
+            keyframesSupported={keyframesSupported}
+            runAction={runAction}
+            sectionHasOnlyColorFields={sectionHasOnlyColorFields}
+            sectionTitle={section.title}
+            setControlValue={setControlValue}
+            vectorPadShape={vectorPadShape}
+          />
+        ),
+      };
+    },
   );
+
+  return renderControlLayoutGroups({
+    controlsById: visibleControls,
+    layoutGroups: section.layoutGroups,
+    renderedGroups,
+  });
 }

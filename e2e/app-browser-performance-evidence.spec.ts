@@ -2,50 +2,57 @@ import { expect, test, type TestInfo } from "@playwright/test";
 
 import {
   TOOLCRAFT_BROWSER_RUNTIME_EVIDENCE_ATTACHMENT_NAME,
+  TOOLCRAFT_BROWSER_RUNTIME_EVIDENCE_CONTENT_TYPE,
   parseToolcraftBrowserRuntimeEvidence,
+  serializeToolcraftBrowserRuntimeEvidence,
 } from "../src/app/test-evidence/browser-runtime-contract";
 import {
-  applyToolcraftPerformanceStressFixture,
-  applyToolcraftPerformanceStressValue,
-} from "./performance-fixture-helpers";
+  TOOLCRAFT_BROWSER_PERFORMANCE_EVIDENCE_ATTACHMENT_NAME,
+  TOOLCRAFT_BROWSER_PERFORMANCE_EVIDENCE_CONTENT_TYPE,
+  parseToolcraftBrowserPerformanceEvidence,
+  serializeToolcraftBrowserPerformanceEvidence,
+  type ToolcraftPerformancePipelineEvidence,
+} from "../src/app/test-evidence/browser-performance-contract";
 import { measureToolcraftInteraction } from "./performance-probe-helpers";
 
-const fixtureConfig = {
-  rendererStrategy: "none",
-  rendererWorkload: "none",
-  scenarios: [
-    {
-      automated: true,
-      automatedTestName: "perf: fixture outcome",
-      browser: true,
-      browserTestName: "browser perf: fixture outcome",
-      budget: { maxInteractionMs: 1_000 },
-      expectedObservable: "The fixture value is applied.",
-      fixture: "Fixture outcome",
-      id: "fixture-outcome",
-      interaction: "control-change",
-      stressFixture: { kind: "max-value", reason: "Exercise the maximum.", value: 8 },
-      workload: true,
-    },
-  ],
-  usesCustomRenderer: false,
-  workloadTargets: [],
-} as const;
+const pipelinePassCounters = () => ({
+  activeResources: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  durationMax: 0,
+  durationTotal: 0,
+  executions: 0,
+  resourceCreations: 0,
+  resourceDisposals: 0,
+  transfers: 0,
+});
 
-const objectFixtureConfig = {
-  ...fixtureConfig,
-  scenarios: [
-    {
-      ...fixtureConfig.scenarios[0],
-      id: "object-fixture-outcome",
-      stressFixture: {
-        kind: "combined",
-        reason: "Exercise the combined final state.",
-        value: { first: 1, second: 2 },
-      },
+function pipelineEvidenceInput() {
+  return {
+    after: {
+      disposed: false,
+      passes: [{ passId: "composite", ...pipelinePassCounters() }],
+      runtimeId: "performance-contract-test-v1",
     },
-  ],
-} as const;
+    before: {
+      disposed: false,
+      passes: [{ passId: "composite", ...pipelinePassCounters() }],
+      runtimeId: "performance-contract-test-v1",
+    },
+    evidenceType: "performance-pipeline",
+    pathId: "performance-path:test",
+    phase: "cold",
+    profile: "interactive-continuous",
+  } satisfies Omit<ToolcraftPerformancePipelineEvidence, "version">;
+}
+
+function performanceAttachment(body: string) {
+  return {
+    body,
+    contentType: TOOLCRAFT_BROWSER_PERFORMANCE_EVIDENCE_CONTENT_TYPE,
+    name: TOOLCRAFT_BROWSER_PERFORMANCE_EVIDENCE_ATTACHMENT_NAME,
+  };
+}
 
 function evidenceTypesSince(testInfo: TestInfo, attachmentCount: number) {
   return testInfo.attachments
@@ -67,7 +74,7 @@ test("performance interaction evidence requires a persistent changed outcome", a
     measureToolcraftInteraction(page, async () => undefined, {
       observeOutcome: () => page.locator("#outcome").textContent(),
       outcomeTimeoutMs: 100,
-      scenarioId: "no-op-outcome",
+      pathId: "no-op-outcome",
     }),
   ).rejects.toThrow(/performance outcome/i);
   expect(evidenceTypesSince(testInfo, attachmentCount)).toEqual([]);
@@ -79,7 +86,7 @@ test("performance interaction evidence requires a persistent changed outcome", a
     }),
     {
       observeOutcome: () => page.locator("#outcome").textContent(),
-      scenarioId: "changed-outcome",
+      pathId: "changed-outcome",
       stabilityIntervalMs: 10,
     },
   );
@@ -99,7 +106,7 @@ test("performance interaction evidence requires a persistent changed outcome", a
     },
     {
       observeOutcome: async () => mutableOutcome,
-      scenarioId: "mutable-outcome",
+      pathId: "mutable-outcome",
       stabilityIntervalMs: 0,
     },
   );
@@ -131,7 +138,7 @@ test("performance interaction rejects autonomous deltas and times an expected se
       baselineStabilitySamples: 3,
       observeOutcome: () => page.locator("#animated-output").textContent(),
       outcomeTimeoutMs: 150,
-      scenarioId: "autonomous-no-op",
+      pathId: "autonomous-no-op",
     }),
   ).rejects.toThrow(/baseline must remain stable/u);
   expect(evidenceTypesSince(testInfo, attachmentCount)).toEqual([]);
@@ -147,7 +154,7 @@ test("performance interaction rejects autonomous deltas and times an expected se
     {
       expectedOutcome: "applied",
       observeOutcome: () => page.locator("#semantic-outcome").textContent(),
-      scenarioId: "expected-semantic-outcome",
+      pathId: "expected-semantic-outcome",
       stabilityIntervalMs: 10,
     },
   );
@@ -159,59 +166,126 @@ test("performance interaction rejects autonomous deltas and times an expected se
   ]);
 });
 
-test("performance fixture evidence requires the declared value to be observable", async ({
-  page,
-}, testInfo) => {
-  await page.setContent('<div id="fixture-value">0</div>');
-  const attachmentCount = testInfo.attachments.length;
+test("performance-pipeline serialization contains raw facts only and deep-copies snapshots", () => {
+  const mutable = pipelineEvidenceInput();
+  mutable.after.passes[0].executions = 1;
+  const serialized = serializeToolcraftBrowserPerformanceEvidence(mutable);
 
-  await expect(
-    applyToolcraftPerformanceStressValue(fixtureConfig, "fixture-outcome", {
-      applyValue: async () => undefined,
-      observeValue: async () => Number(await page.locator("#fixture-value").textContent()),
-    }),
-  ).rejects.toThrow(/observed fixture value/i);
-  expect(evidenceTypesSince(testInfo, attachmentCount)).toEqual([]);
+  mutable.after.passes[0].executions = 99;
+  mutable.after.runtimeId = "mutated-runtime";
+  const parsed = parseToolcraftBrowserPerformanceEvidence(
+    performanceAttachment(serialized),
+  );
+  const raw = JSON.parse(serialized) as Record<string, unknown>;
 
-  await applyToolcraftPerformanceStressValue(fixtureConfig, "fixture-outcome", {
-    applyValue: (value) => page.locator("#fixture-value").evaluate((node, nextValue) => {
-      node.textContent = String(nextValue);
-    }, value),
-    observeValue: async () => Number(await page.locator("#fixture-value").textContent()),
-  });
-
-  expect(evidenceTypesSince(testInfo, attachmentCount)).toEqual([
-    "performance-stress-fixture",
+  expect(Object.keys(raw).sort()).toEqual([
+    "after",
+    "before",
+    "evidenceType",
+    "pathId",
+    "phase",
+    "profile",
+    "version",
   ]);
+  expect(serialized).not.toMatch(/passed|expected|delta/i);
+  expect(parsed?.after.runtimeId).toBe("performance-contract-test-v1");
+  expect(parsed?.after.passes[0]?.executions).toBe(1);
+  expect(Object.isFrozen(parsed)).toBe(true);
+  expect(Object.isFrozen(parsed?.after)).toBe(true);
+  expect(Object.isFrozen(parsed?.after.passes)).toBe(true);
+  expect(Object.isFrozen(parsed?.after.passes[0])).toBe(true);
 });
 
-test("object fixture evidence verifies the complete final state", async ({
-  page,
-}, testInfo) => {
-  const state = { first: 0, second: 0 };
-  const attachmentCount = testInfo.attachments.length;
-
-  await expect(
-    applyToolcraftPerformanceStressFixture(
-      page,
-      objectFixtureConfig,
-      "object-fixture-outcome",
-      {
-        first: {
-          applyValue: (value) => {
-            state.first = Number(value);
+test("performance-pipeline contract rejects unknown fields and malformed pass arrays", () => {
+  const candidates = [
+    { ...pipelineEvidenceInput(), passed: true },
+    { ...pipelineEvidenceInput(), profile: "custom-profile" },
+    {
+      ...pipelineEvidenceInput(),
+      before: { ...pipelineEvidenceInput().before, forged: true },
+    },
+    {
+      ...pipelineEvidenceInput(),
+      after: {
+        ...pipelineEvidenceInput().after,
+        passes: [
+          {
+            ...pipelineEvidenceInput().after.passes[0],
+            expectedExecutions: 0,
           },
-          observeValue: () => state.first,
-        },
-        second: {
-          applyValue: (value) => {
-            state.second = Number(value);
-            state.first = 0;
-          },
-          observeValue: () => state.second,
-        },
+        ],
       },
-    ),
-  ).rejects.toThrow(/complete stressFixture/i);
-  expect(evidenceTypesSince(testInfo, attachmentCount)).toEqual([]);
+    },
+    {
+      ...pipelineEvidenceInput(),
+      after: { ...pipelineEvidenceInput().after, passes: {} },
+    },
+    {
+      ...pipelineEvidenceInput(),
+      after: {
+        ...pipelineEvidenceInput().after,
+        passes: [
+          pipelineEvidenceInput().after.passes[0],
+          pipelineEvidenceInput().after.passes[0],
+        ],
+      },
+    },
+  ];
+
+  for (const candidate of candidates) {
+    expect(
+      () => serializeToolcraftBrowserPerformanceEvidence(candidate as never),
+      JSON.stringify(candidate),
+    ).toThrow();
+  }
+});
+
+test("performance-pipeline contract rejects non-finite, negative, and noninteger metrics", () => {
+  const candidates = [
+    ["durationTotal", Number.NaN],
+    ["durationMax", Number.POSITIVE_INFINITY],
+    ["executions", -1],
+    ["cacheHits", 1.5],
+    ["cacheMisses", Number.MAX_SAFE_INTEGER + 1],
+    ["resourceCreations", -0.5],
+    ["resourceDisposals", Number.NEGATIVE_INFINITY],
+    ["activeResources", 0.5],
+    ["transfers", 0.25],
+  ] as const;
+
+  for (const [key, value] of candidates) {
+    const candidate = pipelineEvidenceInput();
+    const [pass] = candidate.after.passes;
+    if (!pass) throw new Error("Pipeline contract fixture requires one pass.");
+    pass[key] = value;
+    expect(
+      () => serializeToolcraftBrowserPerformanceEvidence(candidate),
+      `${key}: ${String(value)}`,
+    ).toThrow();
+  }
+});
+
+test("runtime registration evidence remains independent from rich performance metrics", () => {
+  const runtimeAttachment = {
+    body: serializeToolcraftBrowserRuntimeEvidence({
+      evidenceType: "performance-budget",
+      requirementId: "registered-performance-path",
+    }),
+    contentType: TOOLCRAFT_BROWSER_RUNTIME_EVIDENCE_CONTENT_TYPE,
+    name: TOOLCRAFT_BROWSER_RUNTIME_EVIDENCE_ATTACHMENT_NAME,
+  };
+  const richAttachment = performanceAttachment(
+    serializeToolcraftBrowserPerformanceEvidence(pipelineEvidenceInput()),
+  );
+
+  expect(parseToolcraftBrowserRuntimeEvidence(runtimeAttachment)).toEqual({
+    evidenceType: "performance-budget",
+    requirementId: "registered-performance-path",
+    version: 2,
+  });
+  expect(parseToolcraftBrowserRuntimeEvidence(richAttachment)).toBeUndefined();
+  expect(parseToolcraftBrowserPerformanceEvidence(runtimeAttachment)).toBeUndefined();
+  expect(parseToolcraftBrowserPerformanceEvidence(richAttachment)?.evidenceType).toBe(
+    "performance-pipeline",
+  );
 });

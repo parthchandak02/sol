@@ -61,6 +61,22 @@ test("requires the editable agent worklog without hashing its contents", async (
   );
 });
 
+test("accepts an optional product-owned workflow observation", async () => {
+  const appRoot = await createContractDocs({
+    "docs/toolcraft/agent-worklog.md": "# Worklog\n",
+    "docs/toolcraft/workflow-observation.md": "# Observation\n",
+    "docs/toolcraft/core/layout.md": "# Layout\n",
+  });
+
+  assert.deepEqual(
+    await getToolcraftContractDocIntegrityFailures({
+      appRoot,
+      protectedRelativePaths: ["docs/toolcraft/core/layout.md"],
+    }),
+    [],
+  );
+});
+
 test("rejects symbolic links inside the contract docs directory", async () => {
   const appRoot = await createContractDocs({
     "docs/toolcraft/agent-worklog.md": "# Worklog\n",

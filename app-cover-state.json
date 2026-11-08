@@ -1,0 +1,13 @@
+{
+  "values": {
+    "appearance.background": "#F3EEE4",
+    "date.dayOfYear": 172,
+    "export.image.format": "png",
+    "export.image.resolution": "4k",
+    "export.includeBackground": true,
+    "place.latitude": 40.7,
+    "place.longitude": -74,
+    "time.hour": 17
+  },
+  "canvas": { "size": { "width": 1920, "height": 1080 } }
+}

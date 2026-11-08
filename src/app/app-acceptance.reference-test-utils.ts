@@ -68,8 +68,11 @@ export function makeReferenceCoverageAcceptance(
   return {
     automated: true,
     automatedTestName: `${id} preserves reference behavior`,
-    browser: true,
-    browserTestName: `browser: ${id} preserves reference behavior`,
+    browser: {
+      budget: "standard",
+      file: "e2e/app-controls.spec.ts",
+      testName: `browser: ${id} preserves reference behavior`,
+    },
     componentType: "custom-renderer",
     evidence: "product-output",
     expectedObservable: `${id} preserves the reference behavior in Toolcraft output.`,
@@ -88,8 +91,11 @@ export function makeReferenceTimelineCoverageAcceptance(
   return {
     automated: true,
     automatedTestName: `${id} preserves reference timeline behavior`,
-    browser: true,
-    browserTestName: `browser: ${id} preserves reference timeline behavior`,
+    browser: {
+      budget: "standard",
+      file: "e2e/app-controls.spec.ts",
+      testName: `browser: ${id} preserves reference timeline behavior`,
+    },
     componentType: "custom-timeline",
     evidence: "timeline-output",
     expectedObservable: `${id} preserves the reference timeline behavior.`,

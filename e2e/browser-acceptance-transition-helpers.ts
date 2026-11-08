@@ -57,7 +57,7 @@ export async function expectToolcraftExpectedOutcomeAfterAction<T>(
   const expectedSnapshot = snapshotToolcraftOutcome(expected, options.message);
 
   expect(
-    before,
+    before as unknown,
     `${options.message} The expected state must differ from the pre-action state so the tested action proves a transition.`,
   ).not.toEqual(expectedSnapshot);
 

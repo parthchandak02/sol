@@ -1,29 +1,44 @@
 import type { Page } from "@playwright/test";
 
 import type { ToolcraftFrameProbeResult } from "./performance-measurement-evidence";
+import { getToolcraftFrameDistributionMetrics } from "./performance-frame-metrics";
 
 let frameProbeReporterSequence = 0;
 
-function emptyToolcraftFrameProbeResult(): ToolcraftFrameProbeResult {
-  return {
-    longTaskCount: 0,
-    longTaskMaxMs: 0,
-    maxFrameGapMs: 0,
-    sampleCount: 0,
-  };
+type ToolcraftRawFrameProbeResult = {
+  frameGapsMs: number[];
+  longTaskCount: number;
+  longTaskMaxMs: number;
+};
+
+function emptyToolcraftRawFrameProbeResult(): ToolcraftRawFrameProbeResult {
+  return { frameGapsMs: [], longTaskCount: 0, longTaskMaxMs: 0 };
+}
+
+function finalizeToolcraftFrameProbeResult(
+  result: ToolcraftRawFrameProbeResult,
+): ToolcraftFrameProbeResult {
+  const frameGapsMs = Object.freeze([...result.frameGapsMs]);
+  return Object.freeze({
+    ...getToolcraftFrameDistributionMetrics(frameGapsMs),
+    frameGapsMs,
+    longTaskCount: result.longTaskCount,
+    longTaskMaxMs: result.longTaskMaxMs,
+  });
 }
 
 export function mergeToolcraftFrameProbeResults(
   results: readonly ToolcraftFrameProbeResult[],
 ): ToolcraftFrameProbeResult {
-  return results.reduce<ToolcraftFrameProbeResult>(
-    (merged, result) => ({
-      longTaskCount: merged.longTaskCount + result.longTaskCount,
-      longTaskMaxMs: Math.max(merged.longTaskMaxMs, result.longTaskMaxMs),
-      maxFrameGapMs: Math.max(merged.maxFrameGapMs, result.maxFrameGapMs),
-      sampleCount: merged.sampleCount + result.sampleCount,
-    }),
-    emptyToolcraftFrameProbeResult(),
+  return finalizeToolcraftFrameProbeResult(
+    results.reduce<ToolcraftRawFrameProbeResult>(
+      (merged, result) => ({
+        frameGapsMs: [...merged.frameGapsMs, ...result.frameGapsMs],
+        longTaskCount: merged.longTaskCount + result.longTaskCount,
+        longTaskMaxMs: Math.max(merged.longTaskMaxMs, result.longTaskMaxMs),
+      }),
+      emptyToolcraftRawFrameProbeResult(),
+    ),
   );
 }
 
@@ -32,10 +47,10 @@ export async function startToolcraftFrameProbe(
 ): Promise<() => Promise<ToolcraftFrameProbeResult>> {
   type FrameProbeReport = {
     kind: "checkpoint" | "final";
-    result: ToolcraftFrameProbeResult;
+    result: ToolcraftRawFrameProbeResult;
   };
-  let reportedCheckpoint = emptyToolcraftFrameProbeResult();
-  const reportedFinalSegments: ToolcraftFrameProbeResult[] = [];
+  let reportedCheckpoint = emptyToolcraftRawFrameProbeResult();
+  const reportedFinalSegments: ToolcraftRawFrameProbeResult[] = [];
   const reporterName = `__toolcraftReportFrameProbe${++frameProbeReporterSequence}`;
   await page.exposeBinding(
     reporterName,
@@ -45,19 +60,15 @@ export async function startToolcraftFrameProbe(
         return;
       }
       reportedCheckpoint = {
+        frameGapsMs: [
+          ...reportedCheckpoint.frameGapsMs,
+          ...report.result.frameGapsMs,
+        ],
         longTaskCount:
           reportedCheckpoint.longTaskCount + report.result.longTaskCount,
         longTaskMaxMs: Math.max(
           reportedCheckpoint.longTaskMaxMs,
           report.result.longTaskMaxMs,
-        ),
-        maxFrameGapMs: Math.max(
-          reportedCheckpoint.maxFrameGapMs,
-          report.result.maxFrameGapMs,
-        ),
-        sampleCount: Math.max(
-          reportedCheckpoint.sampleCount,
-          report.result.sampleCount,
         ),
       };
     },
@@ -65,31 +76,31 @@ export async function startToolcraftFrameProbe(
   const probeId = await page.evaluate((currentReporterName) => {
     type FrameProbeReport = {
       kind: "checkpoint" | "final";
-      result: ToolcraftFrameProbeResult;
+      result: ToolcraftRawFrameProbeResult;
     };
     type FrameProbe = {
       active: boolean;
       id: number;
+      frameGapsMs: number[];
       longTaskCount: number;
       longTaskMaxMs: number;
       observer?: PerformanceObserver;
-      maxFrameGapMs: number;
       pageHideHandler?: () => void;
+      pendingFrameGapsMs: number[];
+      reportedMaxFrameGapMs: number;
       rafId: number;
-      sampleCount: number;
     };
     const win = window as Window & {
-      __toolcraftCompletedFrameProbes?: Record<number, ToolcraftFrameProbeResult>;
+      __toolcraftCompletedFrameProbes?: Record<number, ToolcraftRawFrameProbeResult>;
       __toolcraftFrameProbe?: FrameProbe;
       __toolcraftFrameProbeSequence?: number;
-      __toolcraftStopFrameProbe?: (probeId: number) => ToolcraftFrameProbeResult;
+      __toolcraftStopFrameProbe?: (probeId: number) => ToolcraftRawFrameProbeResult;
     };
 
-    const emptyResult = (): ToolcraftFrameProbeResult => ({
+    const emptyResult = (): ToolcraftRawFrameProbeResult => ({
+      frameGapsMs: [],
       longTaskCount: 0,
       longTaskMaxMs: 0,
-      maxFrameGapMs: 0,
-      sampleCount: 0,
     });
     const reportProbe = (report: FrameProbeReport) => {
       const reporter = (
@@ -100,7 +111,7 @@ export async function startToolcraftFrameProbe(
       )[currentReporterName];
       void reporter?.(report);
     };
-    const disposeProbe = (probe: FrameProbe): ToolcraftFrameProbeResult => {
+    const disposeProbe = (probe: FrameProbe): ToolcraftRawFrameProbeResult => {
       probe.active = false;
       cancelAnimationFrame(probe.rafId);
       probe.observer?.disconnect();
@@ -108,10 +119,9 @@ export async function startToolcraftFrameProbe(
         window.removeEventListener("pagehide", probe.pageHideHandler);
       }
       return {
+        frameGapsMs: [...probe.frameGapsMs],
         longTaskCount: probe.longTaskCount,
         longTaskMaxMs: probe.longTaskMaxMs,
-        maxFrameGapMs: probe.maxFrameGapMs,
-        sampleCount: probe.sampleCount,
       };
     };
 
@@ -130,12 +140,13 @@ export async function startToolcraftFrameProbe(
     let lastFrame = performance.now();
     win.__toolcraftFrameProbe = {
       active: true,
+      frameGapsMs: [],
       id,
       longTaskCount: 0,
       longTaskMaxMs: 0,
-      maxFrameGapMs: 0,
+      pendingFrameGapsMs: [],
+      reportedMaxFrameGapMs: 0,
       rafId: 0,
-      sampleCount: 0,
     };
 
     try {
@@ -154,7 +165,6 @@ export async function startToolcraftFrameProbe(
               ...emptyResult(),
               longTaskCount: 1,
               longTaskMaxMs: entry.duration,
-              sampleCount: probe.sampleCount,
             },
           });
         }
@@ -170,19 +180,32 @@ export async function startToolcraftFrameProbe(
         return;
       }
 
-      const previousMaxFrameGapMs = probe.maxFrameGapMs;
-      probe.maxFrameGapMs = Math.max(probe.maxFrameGapMs, now - lastFrame);
-      probe.sampleCount += 1;
+      if (document.visibilityState === "hidden") {
+        lastFrame = now;
+        probe.rafId = requestAnimationFrame(tick);
+        return;
+      }
+
+      const frameGapMs = Math.max(0, now - lastFrame);
+      probe.frameGapsMs.push(frameGapMs);
+      probe.pendingFrameGapsMs.push(frameGapMs);
       lastFrame = now;
-      if (probe.maxFrameGapMs > previousMaxFrameGapMs) {
+      const nextMaxFrameGapMs = Math.max(
+        probe.reportedMaxFrameGapMs,
+        frameGapMs,
+      );
+      if (
+        nextMaxFrameGapMs > probe.reportedMaxFrameGapMs ||
+        probe.pendingFrameGapsMs.length >= 30
+      ) {
         reportProbe({
           kind: "checkpoint",
           result: {
             ...emptyResult(),
-            maxFrameGapMs: probe.maxFrameGapMs,
-            sampleCount: probe.sampleCount,
+            frameGapsMs: probe.pendingFrameGapsMs.splice(0),
           },
         });
+        probe.reportedMaxFrameGapMs = nextMaxFrameGapMs;
       }
       probe.rafId = requestAnimationFrame(tick);
     };
@@ -223,11 +246,11 @@ export async function startToolcraftFrameProbe(
   return async () => {
     if (stoppedResult) return stoppedResult;
 
-    let currentSegment: ToolcraftFrameProbeResult | undefined;
+    let currentSegment: ToolcraftRawFrameProbeResult | undefined;
     try {
       currentSegment = await page.evaluate((targetProbeId) => {
         const win = window as Window & {
-          __toolcraftStopFrameProbe?: (probeId: number) => ToolcraftFrameProbeResult;
+          __toolcraftStopFrameProbe?: (probeId: number) => ToolcraftRawFrameProbeResult;
         };
 
         return win.__toolcraftStopFrameProbe?.(targetProbeId);
@@ -241,7 +264,9 @@ export async function startToolcraftFrameProbe(
       : reportedFinalSegments.length > 0
         ? reportedFinalSegments
         : [reportedCheckpoint];
-    stoppedResult = mergeToolcraftFrameProbeResults(preservedSegments);
+    stoppedResult = mergeToolcraftFrameProbeResults(
+      preservedSegments.map(finalizeToolcraftFrameProbeResult),
+    );
     return stoppedResult;
   };
 }

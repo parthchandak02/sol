@@ -9,6 +9,8 @@ import {
   codeHealthPassed,
   getLineBudgetViolations,
 } from "./toolcraft-code-health-core.mjs";
+import { createToolcraftLocalDependencyGraph } from "./toolcraft-local-dependency-graph.mjs";
+import { collectToolcraftSourceInventory } from "./toolcraft-source-inventory.mjs";
 
 async function withFixture(files, assertion, prepare = async () => undefined) {
   const fixtureRoot = await fs.mkdtemp(
@@ -152,6 +154,39 @@ test("generated code health ignores immutable copied runtime source", async () =
   );
 });
 
+test("generated code health rejects unsigned ownership manifest claims", async () => {
+  await withFixture(
+    {
+      "scripts/platform-runner.mjs": "export const platform = 1;\n".repeat(501),
+      "src/app/product.ts": "export const product = 1;\n",
+    },
+    (result) => {
+      assert.equal(result.sourceFileCount, 2);
+      assert.deepEqual(
+        result.lineBudgetViolations.map(({ repoPath, scope }) => ({
+          repoPath,
+          scope,
+        })),
+        [{ repoPath: "scripts/platform-runner.mjs", scope: "scripts/" }],
+      );
+      assert.deepEqual(result.forbiddenPatternViolations, []);
+    },
+    async (rootDir) => {
+      const manifestPath = path.join(
+        rootDir,
+        "src/toolcraft/.toolcraft-manifest.json",
+      );
+      await fs.mkdir(path.dirname(manifestPath), { recursive: true });
+      await fs.writeFile(
+        manifestPath,
+        JSON.stringify({
+          protectedFiles: { "scripts/platform-runner.mjs": "signed" },
+        }),
+      );
+    },
+  );
+});
+
 test("generated code health rejects product cycles resolved through tsconfig aliases", async () => {
   await withFixture(
     {
@@ -176,6 +211,137 @@ test("generated code health rejects product cycles resolved through tsconfig ali
       assert.equal(codeHealthPassed(result), false);
     },
   );
+});
+
+test("generated code health includes the product boundary in the shared proof", async () => {
+  await withFixture(
+    {
+      "src/app/product.ts":
+        'import { fixture } from "@/app/product.test";\nvoid fixture;\n',
+      "src/app/product.test.ts": "export const fixture = true;\n",
+    },
+    (result) => {
+      assert.deepEqual(
+        result.productBoundary.violations.map(({ kind }) => kind),
+        ["production-test-import"],
+      );
+      assert.equal(codeHealthPassed(result), false);
+    },
+  );
+});
+
+test("shared proof resolves copied runtime imports without checking framework budgets", async () => {
+  await withFixture(
+    {
+      "src/app/product.ts":
+        'import { runtime } from "@/toolcraft/runtime";\nvoid runtime;\n',
+      "src/toolcraft/runtime/index.ts":
+        "export const runtime = true;\n".repeat(1500),
+    },
+    (result) => {
+      assert.equal(result.sourceFileCount, 1);
+      assert.deepEqual(result.lineBudgetViolations, []);
+      assert.deepEqual(result.forbiddenPatternViolations, []);
+      assert.deepEqual(result.productBoundary.violations, []);
+    },
+  );
+});
+
+test("generated proof constructs and shares one inventory and one graph", async () => {
+  const scriptsDir = import.meta.dirname;
+  const generatedCheckSource = await fs.readFile(
+    path.join(scriptsDir, "check-toolcraft-code-health.mjs"),
+    "utf8",
+  );
+  assert.equal(
+    generatedCheckSource.match(/collectToolcraftSourceInventory\(\{/gu)?.length,
+    1,
+  );
+  assert.equal(
+    generatedCheckSource.match(/createToolcraftLocalDependencyGraph\(\{/gu)
+      ?.length,
+    1,
+  );
+  assert.match(generatedCheckSource, /fullEvidenceEntryPaths/u);
+  assert.match(generatedCheckSource, /sourceRecordMode: "imports-only"/u);
+  assert.equal(
+    generatedCheckSource.match(/\binventory,\n\s+localDependencyGraph,/gu)
+      ?.length,
+    2,
+  );
+
+  const boundarySource = await fs.readFile(
+    path.join(scriptsDir, "toolcraft-product-boundary.mjs"),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    boundarySource,
+    /collectToolcraftModuleSpecifiers|createSourceFile|fsPromises|readFile|resolveToolcraftLocalDependency/u,
+  );
+  const graphSource = await fs.readFile(
+    path.join(scriptsDir, "toolcraft-local-dependency-graph.mjs"),
+    "utf8",
+  );
+  assert.match(
+    graphSource,
+    /createToolcraftDependencySourceRecord/u,
+  );
+  const dependencySource = await fs.readFile(
+    path.join(scriptsDir, "toolcraft-dependency-source-record.mjs"),
+    "utf8",
+  );
+  assert.equal(dependencySource.match(/await fs\.readFile\(/gu)?.length, 1);
+  assert.equal(
+    dependencySource.match(
+      /createToolcraftTypeScriptSourceRecord\(\{/gu,
+    )?.length,
+    1,
+  );
+});
+
+test("standalone code health builds only the import evidence it consumes", async () => {
+  const source = await fs.readFile(
+    path.join(import.meta.dirname, "toolcraft-code-health-core.mjs"),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /createToolcraftLocalDependencyGraph\(\{[\s\S]*?sourceRecordMode: "imports-only"/u,
+  );
+});
+
+test("legacy graph and private product-boundary resolver are removed", async () => {
+  const scriptsDir = import.meta.dirname;
+  const legacyGraphName = ["toolcraft-product", "dependency-graph.mjs"].join(
+    "-",
+  );
+  await assert.rejects(
+    fs.access(path.join(scriptsDir, legacyGraphName)),
+    { code: "ENOENT" },
+  );
+  const boundarySource = await fs.readFile(
+    path.join(scriptsDir, "toolcraft-product-boundary.mjs"),
+    "utf8",
+  );
+  assert.doesNotMatch(boundarySource, /resolveLocalEntry/u);
+  const rootDir = path.resolve(scriptsDir, "..");
+  const inventory = await collectToolcraftSourceInventory({
+    rootDir,
+    sourceRoots: ["scripts"],
+  });
+  const graph = await createToolcraftLocalDependencyGraph({
+    entries: inventory.entries,
+    rootDir,
+    sourceRecordMode: "imports-only",
+  });
+  const legacyImporters = graph.moduleImports
+    .filter(
+      ({ specifier }) =>
+        specifier && path.posix.basename(specifier) === legacyGraphName,
+    )
+    .map(({ importerRepoPath }) => importerRepoPath);
+  assert.deepEqual(legacyImporters, []);
 });
 
 test("generated code health scans supported JavaScript and TypeScript module extensions", async () => {

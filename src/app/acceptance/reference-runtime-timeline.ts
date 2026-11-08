@@ -136,7 +136,7 @@ function getReferenceTimelineAcceptanceCoverageErrors({
       );
     }
 
-    if (!entry.browser || !entry.browserTestName.trim()) {
+    if (entry.browser === false) {
       errors.push(
         `${entry.id} must have browser coverage proving reference timeline behavior "${coverage}".`,
       );

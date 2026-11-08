@@ -1,6 +1,7 @@
-import type {
-  ResolvedToolcraftAppSchema,
-  ToolcraftControlSchema,
+import {
+  type ResolvedToolcraftAppSchema,
+  type ResolvedToolcraftControlSchema,
+  type ToolcraftControlSchema,
 } from "@/toolcraft/runtime";
 
 import {
@@ -8,10 +9,23 @@ import {
   isToolcraftProductSectionControl,
 } from "./controls";
 import { getToolcraftSectionLabel } from "./sections";
-import { getToolcraftLooseTargetPrefix } from "./semantic";
+import {
+  getToolcraftLooseTargetPrefix,
+  normalizeToolcraftSemanticText,
+} from "./semantic";
 
 const maxInlineSwitchLabelLength = 16;
 const maxInlineSwitchLabelWordCount = 2;
+const normalizedVideoExportSectionTitle =
+  normalizeToolcraftSemanticText("Video Export");
+
+type ToolcraftControlsSection = NonNullable<
+  ResolvedToolcraftAppSchema["panels"]["controls"]
+>["sections"][number];
+
+type ToolcraftControlLayoutGroup = NonNullable<
+  ToolcraftControlsSection["layoutGroups"]
+>[number];
 
 function getInlineSwitchLabelText(
   controlId: string,
@@ -55,8 +69,42 @@ function controlsShareToolcraftTargetEntity(
   return Boolean(firstPrefix && firstPrefix === secondPrefix);
 }
 
+function isToolcraftVideoExportSegmentedInlinePair({
+  layoutGroup,
+  section,
+  segmentedControlId,
+}: {
+  layoutGroup: ToolcraftControlLayoutGroup;
+  section: ToolcraftControlsSection;
+  segmentedControlId: string;
+}): boolean {
+  if (
+    normalizeToolcraftSemanticText(section.title) !==
+      normalizedVideoExportSectionTitle ||
+    layoutGroup.columns !== 2 ||
+    layoutGroup.controls.length !== 2
+  ) {
+    return false;
+  }
+
+  const formatControl = section.controls[segmentedControlId];
+  const resolutionControlId = layoutGroup.controls.find(
+    (controlId) => controlId !== segmentedControlId,
+  );
+  const resolutionControl = resolutionControlId
+    ? section.controls[resolutionControlId]
+    : undefined;
+
+  return (
+    formatControl?.type === "segmented" &&
+    formatControl.target === "export.video.format" &&
+    resolutionControl?.type === "select" &&
+    resolutionControl.target === "export.video.resolution"
+  );
+}
+
 export function sectionHasInlineLayoutGroupForPair(
-  section: NonNullable<ResolvedToolcraftAppSchema["panels"]["controls"]>["sections"][number],
+  section: ToolcraftControlsSection,
   firstControlId: string,
   secondControlId: string,
 ): boolean {
@@ -94,7 +142,13 @@ export function getToolcraftInlineLayoutErrors(
       }
 
       const segmentedIds = layoutGroup.controls.filter(
-        (controlId) => section.controls[controlId]?.type === "segmented",
+        (controlId) =>
+          section.controls[controlId]?.type === "segmented" &&
+          !isToolcraftVideoExportSegmentedInlinePair({
+            layoutGroup,
+            section,
+            segmentedControlId: controlId,
+          }),
       );
 
       if (segmentedIds.length > 0) {
@@ -103,22 +157,32 @@ export function getToolcraftInlineLayoutErrors(
         );
       }
 
+      const tabsIds = layoutGroup.controls.filter(
+        (controlId) => section.controls[controlId]?.type === "tabs",
+      );
+
+      if (tabsIds.length > 0) {
+        errors.push(
+          `${sectionLabel} layoutGroups inline row "${layoutGroup.controls.join(", ")}" includes tabs control ${tabsIds.join(", ")}. Tabs is full-width and must not share a two-column or half-width row.`,
+        );
+      }
+
       const switchEntries = layoutGroup.controls
         .map((controlId) => [controlId, section.controls[controlId]] as const)
         .filter(
-          (entry): entry is readonly [string, ToolcraftControlSchema] =>
+          (entry): entry is readonly [string, ResolvedToolcraftControlSchema] =>
             Boolean(entry[1]) && entry[1].type === "switch",
         );
       const booleanEntries = layoutGroup.controls
         .map((controlId) => [controlId, section.controls[controlId]] as const)
         .filter(
-          (entry): entry is readonly [string, ToolcraftControlSchema] =>
+          (entry): entry is readonly [string, ResolvedToolcraftControlSchema] =>
             Boolean(entry[1]) && isBooleanControl(entry[1]),
         );
       const parameterEntries = layoutGroup.controls
         .map((controlId) => [controlId, section.controls[controlId]] as const)
         .filter(
-          (entry): entry is readonly [string, ToolcraftControlSchema] =>
+          (entry): entry is readonly [string, ResolvedToolcraftControlSchema] =>
             Boolean(entry[1]) && !isBooleanControl(entry[1]),
         );
 
@@ -170,8 +234,10 @@ export function getToolcraftInlineLayoutErrors(
         !secondControlId ||
         !firstControl ||
         !secondControl ||
-        firstControl.visibleWhen ||
-        secondControl.visibleWhen ||
+        firstControl.applicability.mode ===
+          "conditional" ||
+        secondControl.applicability.mode ===
+          "conditional" ||
         !isBooleanControl(firstControl) ||
         !isBooleanControl(secondControl) ||
         !isInlineSwitchLabelSafe(firstControlId, firstControl) ||

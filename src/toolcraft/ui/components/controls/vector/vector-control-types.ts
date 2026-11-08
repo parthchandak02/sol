@@ -15,6 +15,8 @@ export type VectorPadVariant =
 export type VectorPadCoordinateMode = "cartesian" | "screen";
 
 export type VectorControlProps = VectorControlValue & {
+  /** Display numeric values without editable pad or axis actions. */
+  disabled?: boolean;
   defaultValue?: Partial<VectorControlValue>;
   name: string;
   onValueChange?: ControlValueChangeHandler<VectorControlValue>;

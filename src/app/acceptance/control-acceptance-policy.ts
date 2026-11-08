@@ -18,13 +18,12 @@ function getControlComponentPolicyErrors({
   control,
   controlId,
   label,
-  sectionTitle,
 }: Pick<
   ToolcraftControlRuleContext,
-  "control" | "controlId" | "label" | "sectionTitle"
+  "control" | "controlId" | "label"
 >): string[] {
   const errors: string[] = [];
-  const toggleLabelError = getToggleControlLabelError(control, sectionTitle);
+  const toggleLabelError = getToggleControlLabelError(control);
   const singleActionsLabelError = getSingleActionsControlLabelError(control);
   const codeTextareaError = getCodeTextareaControlError({
     control,
@@ -140,17 +139,6 @@ function getControlStatePolicyErrors({
 >): string[] {
   const errors: string[] = [];
 
-  if (control.visibleWhen) {
-    errors.push(
-      ...getConditionValidationErrors({
-        condition: control.visibleWhen,
-        conditionName: "visibleWhen",
-        controlTargets,
-        label,
-      }),
-    );
-  }
-
   if (control.disabledWhen) {
     errors.push(
       ...getConditionValidationErrors({
@@ -164,13 +152,13 @@ function getControlStatePolicyErrors({
 
   if (control.disabled === true) {
     errors.push(
-      `${label} sets disabled: true. Generated product panels should show only controls usable in the current state; hide unavailable product controls with visibleWhen instead of rendering disabled controls.`,
+      `${label} sets disabled: true. Generated product panels should show only controls usable in the current state; declare conditional applicability instead of rendering disabled controls.`,
     );
   }
 
   if (control.disabledWhen) {
     errors.push(
-      `${label} uses disabledWhen. Generated product panels should show only controls usable in the current state; hide unavailable product controls with visibleWhen instead of rendering disabled controls.`,
+      `${label} uses disabledWhen. Generated product panels should show only controls usable in the current state; declare conditional applicability instead of rendering disabled controls.`,
     );
   }
 

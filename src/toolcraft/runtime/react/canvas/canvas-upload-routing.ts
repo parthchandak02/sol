@@ -1,51 +1,32 @@
 import type { ToolcraftControlSchema } from "../../schema/types";
+import type { ToolcraftSourceAssetFeedback } from "../../source-assets/source-asset-types";
+import { doesToolcraftControlAcceptBatch } from "../../source-assets/file-source-asset-handler";
 import type { ToolcraftState } from "../../state/types";
 import {
   isToolcraftControlVisible,
   isToolcraftSectionVisible,
 } from "../controls-panel/conditions/control-conditions";
-import { isToolcraftImageFile } from "./media-file";
+import { isToolcraftImageFile } from "../../source-assets/media-file";
 
-function getFileExtension(file: File): string {
-  const match = /\.([a-z0-9]+)$/iu.exec(file.name);
+export type ToolcraftCanvasDropTargetSelection =
+  | { control?: ToolcraftControlSchema; kind: "selected" }
+  | { feedback: ToolcraftSourceAssetFeedback; kind: "ambiguous" }
+  | { kind: "none" };
 
-  return match?.[1]?.toLowerCase() ?? "";
-}
+type CanvasDropCandidate = {
+  control: ToolcraftControlSchema;
+  specificity: number;
+};
 
-function controlAcceptsFile(control: ToolcraftControlSchema, file: File): boolean {
-  const accept = control.accept?.trim();
-
-  if (!accept) {
-    return control.assetKind === "file" || isToolcraftImageFile(file);
-  }
-
-  const fileExtension = getFileExtension(file);
-  const mimeType = file.type.toLowerCase();
-
-  return accept.split(",").some((rawToken) => {
-    const token = rawToken.trim().toLowerCase();
-
-    if (!token) {
-      return false;
-    }
-
-    if (token.startsWith(".")) {
-      return token.slice(1) === fileExtension;
-    }
-
-    if (token.endsWith("/*")) {
-      const prefix = token.slice(0, -1);
-
-      return mimeType.startsWith(prefix);
-    }
-
-    if (token.includes("/")) {
-      return mimeType === token;
-    }
-
-    return token === fileExtension;
-  });
-}
+const AMBIGUOUS_CANVAS_DROP: ToolcraftCanvasDropTargetSelection = Object.freeze({
+  feedback: Object.freeze({
+    category: "bundle" as const,
+    code: "ambiguous-target",
+    message:
+      "The selected files match more than one equally specific upload target.",
+  }),
+  kind: "ambiguous" as const,
+});
 
 export function getVisibleFileDropControls(state: ToolcraftState): ToolcraftControlSchema[] {
   return (state.schema.panels.controls?.sections ?? []).flatMap((section) => {
@@ -62,23 +43,51 @@ export function getVisibleFileDropControls(state: ToolcraftState): ToolcraftCont
 
 export function getCanvasDropTarget(
   state: ToolcraftState,
-  file: File,
-): ToolcraftControlSchema | null {
-  const isImage = isToolcraftImageFile(file);
-  const controls = getVisibleFileDropControls(state).filter((control) =>
-    controlAcceptsFile(control, file),
-  );
-  const preferredAssetKind = isImage ? "image" : "file";
-  const exactMatch = controls.find(
-    (control) =>
-      (control.assetKind === "file" ? "file" : "image") === preferredAssetKind,
-  );
-
-  if (exactMatch) {
-    return exactMatch;
+  files: readonly File[],
+): ToolcraftCanvasDropTargetSelection {
+  if (files.length === 0) {
+    return { kind: "none" };
   }
 
-  return isImage
-    ? (controls.find((control) => control.assetKind === "file") ?? null)
-    : null;
+  const controls = getVisibleFileDropControls(state);
+  if (controls.length === 0) {
+    return files.every(isToolcraftImageFile)
+      ? { kind: "selected" }
+      : { kind: "none" };
+  }
+
+  const batch = { files, origin: "canvas" as const };
+  const candidates = controls.flatMap<CanvasDropCandidate>((control) => {
+    if (
+      control.assetKind === "model" ||
+      !doesToolcraftControlAcceptBatch(control, batch)
+    ) {
+      return [];
+    }
+
+    if (control.assetKind === "file") {
+      return [{ control, specificity: 1 }];
+    }
+
+    return files.every(isToolcraftImageFile)
+      ? [{ control, specificity: 100 }]
+      : [];
+  });
+  const specialized = candidates.filter(({ specificity }) => specificity > 1);
+  const eligible = specialized.length > 0 ? specialized : candidates;
+
+  if (eligible.length === 0) {
+    return { kind: "none" };
+  }
+
+  const highestSpecificity = Math.max(
+    ...eligible.map(({ specificity }) => specificity),
+  );
+  const selected = eligible.filter(
+    ({ specificity }) => specificity === highestSpecificity,
+  );
+
+  return selected.length === 1 && selected[0]
+    ? { control: selected[0].control, kind: "selected" }
+    : AMBIGUOUS_CANVAS_DROP;
 }

@@ -152,7 +152,7 @@ export function ColorValueControl({
         {children}
       </ButtonGroup>
       {nativeInputName ? (
-        <input name={nativeInputName} type="hidden" value={previewColor} />
+        <input data-slot="color-value-native-input" name={nativeInputName} type="hidden" value={previewColor} />
       ) : null}
     </>
   );

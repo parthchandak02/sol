@@ -26,6 +26,7 @@ export type ColorControlInputPair = readonly [
 ];
 
 type ColorControlSingleProps = ColorControlInput & {
+  fullWidth?: boolean;
   inputs?: never;
 };
 

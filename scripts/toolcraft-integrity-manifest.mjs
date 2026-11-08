@@ -34,12 +34,16 @@ function sortManifestFileRecord(value) {
   );
 }
 
-function hasValidManifestSignature(manifest) {
+export function hasValidToolcraftIntegrityManifestSignature(manifest) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return false;
+  }
   if (typeof manifest.signature !== "string" || manifest.signature.length === 0) {
     return false;
   }
 
   const payload = JSON.stringify({
+    ...(manifest.domain === undefined ? {} : { domain: manifest.domain }),
     files: sortManifestFileRecord(manifest.files),
     packageScripts: sortManifestFileRecord(manifest.packageScripts),
     protectedFiles: sortManifestFileRecord(manifest.protectedFiles),
@@ -56,6 +60,10 @@ function hasValidManifestSignature(manifest) {
   } catch {
     return false;
   }
+}
+
+export function isToolcraftStarterPreflightManifest(manifest) {
+  return hasValidToolcraftIntegrityManifestSignature(manifest) && manifest.domain === "starter";
 }
 
 function resolveRelativePathWithin(rootDir, relativePath) {
@@ -117,7 +125,7 @@ export function validateIntegrityManifest({
     };
   }
 
-  if (!hasValidManifestSignature(manifest)) {
+  if (!hasValidToolcraftIntegrityManifestSignature(manifest)) {
     return { failures: ["manifest signature is invalid"] };
   }
 

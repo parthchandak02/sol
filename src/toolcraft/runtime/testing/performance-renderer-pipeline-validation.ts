@@ -1,7 +1,14 @@
-import type { ResolvedToolcraftAppSchema } from "../schema/types";
+import type { ResolvedToolcraftAppSchema } from "../schema/resolved-app-schema";
+import {
+  assessParsedToolcraftEnvelopeRenderPlan,
+  type ToolcraftRenderPlanBenchmarkRequirement,
+} from "./performance-render-plan-assessment";
+import type { ToolcraftEnvelopeValidationContext } from "./performance-envelope-validation-context";
+import {
+  type ToolcraftRendererPipelineParseResult,
+} from "./performance-renderer-pipeline-parser";
 import type {
-  ToolcraftPerformanceConfig,
-  ToolcraftPerformanceInteraction,
+  ToolcraftEnvelopePerformanceConfig,
   ToolcraftPipelineInteraction,
   ToolcraftRenderPass,
   ToolcraftRenderPassKind,
@@ -10,6 +17,7 @@ import type {
   ToolcraftRenderPassRunLocation,
   ToolcraftRendererPipeline,
 } from "./performance-types";
+import type { ToolcraftPerformanceCoverageValidationPolicy } from "./performance-coverage-policy";
 
 const renderPassKinds = new Set<ToolcraftRenderPassKind>([
   "decode",
@@ -47,6 +55,7 @@ const renderPassQualities = new Set<ToolcraftRenderPassQuality>([
 ]);
 
 const pipelineInteractions = new Set<ToolcraftPipelineInteraction>([
+  "initial-render",
   "animation-frame",
   "control-change",
   "control-drag",
@@ -72,14 +81,16 @@ const cacheRequiredRenderPassKinds = new Set<ToolcraftRenderPassKind>([
   "composite",
 ]);
 
-const highFrequencyViewportInteractions = new Set<ToolcraftPipelineInteraction>([
-  "animation-frame",
-  "mask-drag",
-  "timeline-playback",
-  "timeline-scrub",
-  "viewport-drag",
-  "viewport-zoom",
-]);
+const highFrequencyViewportInteractions = new Set<ToolcraftPipelineInteraction>(
+  [
+    "animation-frame",
+    "mask-drag",
+    "timeline-playback",
+    "timeline-scrub",
+    "viewport-drag",
+    "viewport-zoom",
+  ],
+);
 
 const vaguePipelineReferencePattern =
   /^(?:all|all values|everything|props|runtime|settings|state|values)$/i;
@@ -90,33 +101,26 @@ function getPassById(
   return new Map(pipeline.passes.map((pass) => [pass.id, pass]));
 }
 
-export function hasMainThreadCanvasRasterCompositePreviewPressure(
-  config: ToolcraftPerformanceConfig,
-): boolean {
-  if (config.rendererStrategy !== "canvas-2d" || !config.rendererPipeline) {
-    return false;
-  }
-
-  const hasMainThreadRasterPass = config.rendererPipeline.passes.some(
-    (pass) =>
-      pass.runsOn === "main" &&
-      (pass.kind === "rasterize" || pass.kind === "pixel-transform") &&
-      (pass.output === "intermediate" || pass.output === "preview") &&
-      (pass.quality === "full" || pass.quality === "retina"),
+function hasPipelineReference(value: string): boolean {
+  return (
+    value.trim().length > 0 && !vaguePipelineReferencePattern.test(value.trim())
   );
-  const hasMainThreadPreviewComposite = config.rendererPipeline.passes.some(
-    (pass) =>
-      pass.runsOn === "main" &&
-      pass.kind === "composite" &&
-      pass.output === "preview" &&
-      (pass.quality === "full" || pass.quality === "retina"),
-  );
-
-  return hasMainThreadRasterPass && hasMainThreadPreviewComposite;
 }
 
-function hasPipelineReference(value: string): boolean {
-  return value.trim().length > 0 && !vaguePipelineReferencePattern.test(value.trim());
+function isRetinaViewportZoomRaster(
+  schema: ResolvedToolcraftAppSchema,
+  interaction: ToolcraftPipelineInteraction,
+  pass: ToolcraftRenderPass,
+): boolean {
+  return (
+    interaction === "viewport-zoom" &&
+    schema.canvas.renderScale.enabled &&
+    pass.kind === "rasterize" &&
+    pass.quality === "retina" &&
+    (pass.runsOn === "worker" ||
+      pass.runsOn === "gpu" ||
+      pass.runsOn === "worker-or-gpu")
+  );
 }
 
 function getPipelineReferenceErrors(
@@ -137,57 +141,80 @@ function getPipelineReferenceErrors(
   );
 }
 
-function getPipelineInteractionForScenario(
-  interaction: ToolcraftPerformanceInteraction,
-): ToolcraftPipelineInteraction | null {
-  switch (interaction) {
-    case "animation-frame":
-      return "animation-frame";
-    case "animation-viewport-drag":
-      return "viewport-drag";
-    case "control-change":
-      return "control-change";
-    case "control-drag":
-      return "control-drag";
-    case "export-copy":
-      return "export";
-    case "mask-drag":
-      return "mask-drag";
-    case "media-import":
-      return "media-import";
-    case "preview-render":
-      return null;
-    case "timeline-playback":
-      return "timeline-playback";
-    case "timeline-scrub":
-      return "timeline-scrub";
-    case "viewport-zoom-stress":
-      return "viewport-zoom";
-    case "viewport-stability":
-      return null;
-  }
+function getRequiredBenchmarkError(
+  requirement: ToolcraftRenderPlanBenchmarkRequirement,
+): string {
+  return `rendererPipeline pass "${requirement.passId}" requires a protected kernel benchmark decision for candidates ${requirement.candidates.join(
+    ", ",
+  )} at workload ${JSON.stringify(requirement.workload)} before the render plan is accepted.`;
 }
 
-export function getRendererPipelineErrors(
-  _schema: ResolvedToolcraftAppSchema,
-  config: ToolcraftPerformanceConfig,
+function getEnvelopeRenderPlanErrors(
+  schema: ResolvedToolcraftAppSchema,
+  config: ToolcraftEnvelopeValidationContext["config"],
+  parsedPipeline: ToolcraftRendererPipelineParseResult,
+  policy: ToolcraftPerformanceCoverageValidationPolicy,
 ): string[] {
-  const errors: string[] = [];
-  const pipeline = config.rendererPipeline;
+  const assessment = assessParsedToolcraftEnvelopeRenderPlan(
+    schema,
+    config,
+    parsedPipeline,
+  );
+  return [
+    ...assessment.errors,
+    ...(policy.unresolvedKernelBenchmarks === "error"
+      ? assessment.requiredBenchmarks.map(getRequiredBenchmarkError)
+      : []),
+  ];
+}
 
-  if (config.usesCustomRenderer && !pipeline) {
+type ToolcraftRendererPipelineValidationContext = {
+  config: ToolcraftEnvelopePerformanceConfig;
+  evaluateRenderPlan: boolean;
+  parsedPipeline: ToolcraftRendererPipelineParseResult;
+  policy: ToolcraftPerformanceCoverageValidationPolicy;
+};
+
+function getRendererPipelineErrorsFromParsedPipeline(
+  schema: ResolvedToolcraftAppSchema,
+  context: ToolcraftRendererPipelineValidationContext,
+): string[] {
+  const { config, parsedPipeline } = context;
+  const errors: string[] = [];
+  const rawPipeline = config.rendererPipeline as unknown;
+  const envelopeRenderPlanErrors = context.evaluateRenderPlan
+    ? getEnvelopeRenderPlanErrors(
+        schema,
+        context.config,
+        parsedPipeline,
+        context.policy,
+      )
+    : [];
+
+  if (config.usesCustomRenderer && rawPipeline === undefined) {
     return [
       "Custom renderers must declare rendererPipeline so render passes, cache keys, and invalidation are machine-checkable.",
+      ...envelopeRenderPlanErrors,
     ];
   }
 
-  if (!config.usesCustomRenderer && pipeline) {
-    return ["Non-custom renderer configs must omit rendererPipeline."];
+  if (!config.usesCustomRenderer && rawPipeline !== undefined) {
+    return [
+      "Non-custom renderer configs must omit rendererPipeline.",
+      ...envelopeRenderPlanErrors,
+    ];
   }
 
-  if (!pipeline) {
-    return errors;
+  if (rawPipeline === undefined) {
+    return envelopeRenderPlanErrors;
   }
+
+  if (!parsedPipeline.pipeline) {
+    return [
+      ...new Set([...parsedPipeline.errors, ...envelopeRenderPlanErrors]),
+    ];
+  }
+  const pipeline = parsedPipeline.pipeline;
 
   if (pipeline.passes.length === 0) {
     errors.push("rendererPipeline must declare at least one render pass.");
@@ -213,12 +240,25 @@ export function getRendererPipelineErrors(
     }
 
     if (!renderPassKinds.has(pass.kind)) {
-      errors.push(`rendererPipeline pass "${pass.id}" kind "${pass.kind}" is not supported.`);
+      errors.push(
+        `rendererPipeline pass "${pass.id}" kind "${pass.kind}" is not supported.`,
+      );
     }
 
     if (!renderPassRunLocations.has(pass.runsOn)) {
       errors.push(
         `rendererPipeline pass "${pass.id}" runsOn "${pass.runsOn}" is not supported.`,
+      );
+    }
+
+    const requiresGpu = pass.runsOn === "gpu" || pass.runsOn === "worker-or-gpu";
+    if (requiresGpu && pass.gpu === undefined) {
+      errors.push(
+        `rendererPipeline pass "${pass.id}" runs on ${pass.runsOn} and must declare gpu execution semantics.`,
+      );
+    } else if (!requiresGpu && pass.gpu !== undefined) {
+      errors.push(
+        `rendererPipeline pass "${pass.id}" runs on ${pass.runsOn} and must omit gpu execution semantics.`,
       );
     }
 
@@ -235,14 +275,23 @@ export function getRendererPipelineErrors(
     }
 
     errors.push(...getPipelineReferenceErrors(pass.id, "inputs", pass.inputs));
-    errors.push(...getPipelineReferenceErrors(pass.id, "invalidatedBy", pass.invalidatedBy));
+    errors.push(
+      ...getPipelineReferenceErrors(
+        pass.id,
+        "invalidatedBy",
+        pass.invalidatedBy,
+      ),
+    );
 
     if (pass.cacheKey) {
-      errors.push(...getPipelineReferenceErrors(pass.id, "cacheKey", pass.cacheKey));
+      errors.push(
+        ...getPipelineReferenceErrors(pass.id, "cacheKey", pass.cacheKey),
+      );
     }
 
     if (
       cacheRequiredRenderPassKinds.has(pass.kind) &&
+      pass.lifecycle?.cache !== "none" &&
       (!pass.cacheKey || pass.cacheKey.length === 0)
     ) {
       errors.push(
@@ -251,23 +300,19 @@ export function getRendererPipelineErrors(
     }
 
     if (pass.kind === "decode") {
-      const hasMediaImportScenario = config.scenarios.some(
-        (scenario) => scenario.interaction === "media-import",
+      const hasMediaImportInvalidation = pipeline.interactionInvalidation.some(
+        (invalidation) => invalidation.interaction === "media-import",
       );
 
-      if (!hasMediaImportScenario) {
+      if (!hasMediaImportInvalidation) {
         errors.push(
-          `rendererPipeline pass "${pass.id}" decodes media, so performance scenarios must include media-import coverage.`,
+          `rendererPipeline pass "${pass.id}" decodes media, so interactionInvalidation must include a media-import path.`,
         );
       }
     }
   }
 
   const passesById = getPassById(pipeline);
-  const invalidationTargets = new Set<string>();
-  const pipelineInteractionSet = new Set(
-    pipeline.interactionInvalidation.map((invalidation) => invalidation.interaction),
-  );
 
   for (const invalidation of pipeline.interactionInvalidation) {
     if (!pipelineInteractions.has(invalidation.interaction)) {
@@ -284,13 +329,8 @@ export function getRendererPipelineErrors(
       ),
     );
 
-    for (const target of invalidation.targets) {
-      if (hasPipelineReference(target)) {
-        invalidationTargets.add(target);
-      }
-    }
-
     const mustNotInvalidate = new Set(invalidation.mustNotInvalidate ?? []);
+    const invalidatedPassIds = new Set(invalidation.invalidates);
 
     for (const passId of invalidation.invalidates) {
       if (!passId.trim()) {
@@ -317,7 +357,8 @@ export function getRendererPipelineErrors(
 
       if (
         highFrequencyViewportInteractions.has(invalidation.interaction) &&
-        expensiveRenderPassKinds.has(pass.kind)
+        expensiveRenderPassKinds.has(pass.kind) &&
+        !isRetinaViewportZoomRaster(schema, invalidation.interaction, pass)
       ) {
         errors.push(
           `rendererPipeline ${invalidation.interaction} must not invalidate expensive pass "${passId}" (${pass.kind}). Move viewport work to transforms/uniforms or explain it through a cheaper pass.`,
@@ -336,25 +377,56 @@ export function getRendererPipelineErrors(
         );
       }
     }
-  }
 
-  for (const scenario of config.scenarios) {
-    const pipelineInteraction = getPipelineInteractionForScenario(scenario.interaction);
+    for (const passId of invalidation.preparationInvalidates ?? []) {
+      if (!passId.trim()) {
+        errors.push(
+          `rendererPipeline ${invalidation.interaction} preparationInvalidates contains an empty pass id.`,
+        );
+      } else if (!passesById.has(passId)) {
+        errors.push(
+          `rendererPipeline ${invalidation.interaction} preparationInvalidates unknown pass "${passId}".`,
+        );
+      }
+    }
 
-    if (pipelineInteraction && !pipelineInteractionSet.has(pipelineInteraction)) {
-      errors.push(
-        `Performance scenario ${scenario.id} exercises ${pipelineInteraction}, so rendererPipeline.interactionInvalidation must declare that interaction.`,
-      );
+    for (const passId of invalidation.retainedAccesses ?? []) {
+      if (!passId.trim()) {
+        errors.push(
+          `rendererPipeline ${invalidation.interaction} retainedAccesses contains an empty pass id.`,
+        );
+        continue;
+      }
+      const pass = passesById.get(passId);
+      if (!pass) {
+        errors.push(
+          `rendererPipeline ${invalidation.interaction} retainedAccesses unknown pass "${passId}".`,
+        );
+      } else if (pass.lifecycle?.cache !== "retained-resource") {
+        errors.push(
+          `rendererPipeline ${invalidation.interaction} retainedAccesses pass "${passId}" must use retained-resource lifecycle.`,
+        );
+      }
+      if (invalidatedPassIds.has(passId)) {
+        errors.push(
+          `rendererPipeline ${invalidation.interaction} cannot both invalidate and retain-access pass "${passId}".`,
+        );
+      }
     }
   }
 
-  for (const target of config.workloadTargets) {
-    if (!invalidationTargets.has(target)) {
-      errors.push(
-        `Performance workload target ${target} must appear in rendererPipeline interactionInvalidation targets.`,
-      );
-    }
-  }
-
+  errors.push(...envelopeRenderPlanErrors);
   return errors;
+}
+
+export function getRendererPipelineErrorsForEnvelopeContext(
+  context: ToolcraftEnvelopeValidationContext,
+  policy: ToolcraftPerformanceCoverageValidationPolicy,
+): string[] {
+  return getRendererPipelineErrorsFromParsedPipeline(context.schema, {
+    config: context.config,
+    evaluateRenderPlan: context.workloadEnvelopeValid,
+    parsedPipeline: context.parsedPipeline,
+    policy,
+  });
 }

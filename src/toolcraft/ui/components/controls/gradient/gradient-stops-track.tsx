@@ -48,6 +48,7 @@ function GradientStopPin({
     <button
       aria-label={`Gradient stop ${stop.originalIndex + 1}`}
       aria-pressed={isSelected}
+      data-slot="gradient-stop-handle"
       className={cn(
         "absolute top-1 z-10 flex touch-none -translate-x-1/2 cursor-grab flex-col items-center rounded-lg outline-none",
         "active:cursor-grabbing",
@@ -129,6 +130,7 @@ export function GradientStopsTrack({
   return (
     <div
       aria-label="Gradient stops track"
+      data-slot="gradient-stops-track"
       className="app-no-drag relative mt-1 h-12 w-full touch-none cursor-crosshair"
       onPointerCancel={onDragEnd}
       onPointerDown={onPointerDown}

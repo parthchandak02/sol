@@ -4,7 +4,47 @@ import test from "node:test";
 import {
   getToolcraftContractFragmentFailures,
   renderToolcraftContractFragment,
+  toolcraftContractManifest,
 } from "./toolcraft-contract-manifest.mjs";
+
+test("contract manifest exposes the protected performance lifecycle", () => {
+  assert.deepEqual(toolcraftContractManifest.performanceVerification, {
+    evidenceLevels: [
+      "targeted-performance",
+      "full-performance",
+    ],
+    modes: {
+      functionalInitial: {
+        baseline: "preserve",
+        functionalAcceptance: "full",
+        performance: "none",
+      },
+      functionalTargeted: {
+        baseline: "preserve",
+        functionalAcceptance: "exact-ownership-derived",
+        performance: "none",
+      },
+      performanceIteration: {
+        baseline: "not-required",
+        intent: "performance-iteration",
+        performance: "exact-targeted-checks",
+      },
+      fullCertification: {
+        automaticLaunch: "forbidden",
+        authority: "explicit-user-consent-via-operator-command",
+        performance: "complete-current-matrix",
+        recommendation:
+          "two-compatible-iterations-or-agent-judged-broad-unlocalizable-problem",
+        userCommandKnowledge: "not-required",
+      },
+    },
+    requestClassification: [
+      "high-confidence-performance-iteration",
+      "high-confidence-ordinary-product-work",
+      "needs-agent-judgment",
+    ],
+  });
+});
 
 test("generated contract fragments accept the canonical manifest rendering", () => {
   const source = [

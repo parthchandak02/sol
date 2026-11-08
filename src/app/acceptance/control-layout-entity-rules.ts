@@ -2,10 +2,8 @@ import {
   getToolcraftFontPickerOwnedTypographyPart,
 } from "./control-labels";
 import type { ToolcraftControlLayoutFacts } from "./control-layout-model";
-import {
-  getToolcraftSectionInventoryByTitle,
-  hasToolcraftInventorySplitEvidence,
-} from "./control-section-inventory";
+import { hasToolcraftInventoryEntityAgreement } from "./control-section-entity-cohesion";
+import { getToolcraftSectionInventoryById } from "./control-section-inventory";
 import { getControlLabelText } from "./controls";
 import type { ToolcraftControlSectionInventoryEntry } from "./types";
 
@@ -55,15 +53,18 @@ function getToolcraftProductEntitySplitErrors({
   sectionInventory: readonly ToolcraftControlSectionInventoryEntry[];
 }): string[] {
   const errors: string[] = [];
-  const sectionInventoryByTitle = getToolcraftSectionInventoryByTitle(sectionInventory);
+  const sectionInventoryById = getToolcraftSectionInventoryById(sectionInventory);
 
   for (const [prefix, sections] of facts.strictPrefixSections) {
     if (
       sections.size > 1 &&
-      !hasToolcraftInventorySplitEvidence({ sectionInventoryByTitle, sections })
+      !hasToolcraftInventoryEntityAgreement({ sectionInventoryById, sections })
     ) {
+      const sectionLabels = [...sections].map(
+        (sectionId) => facts.sectionLabelsById.get(sectionId) ?? sectionId,
+      );
       errors.push(
-        `Controls for product entity "${prefix}" are split across sections: ${[...sections].join(", ")}. Keep controls for the same product entity in one semantic section unless the Control Section Inventory declares workflowStage and splitReason for every split section.`,
+        `Controls for target family "${prefix}" are split across sections: ${sectionLabels.join(", ")}. Assign one shared entityId when the sections edit one logical entity; the entity cohesion validator decides whether that split is allowed.`,
       );
     }
   }

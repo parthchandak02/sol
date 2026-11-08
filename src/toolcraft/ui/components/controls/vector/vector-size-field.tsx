@@ -9,6 +9,7 @@ import { normalizeVectorCoordinate } from "./vector-value";
 
 export function VectorSizeField({
   defaultValue,
+  disabled,
   name,
   onValueChange,
   x,
@@ -36,6 +37,7 @@ export function VectorSizeField({
   }, [defaultValue?.x, defaultValue?.y]);
 
   function commitVector(): void {
+    if (disabled) return;
     const nextValue = {
       x: draftValue.x.trim() === "" ? defaultValueRef.current.x : draftValue.x,
       y: draftValue.y.trim() === "" ? defaultValueRef.current.y : draftValue.y,
@@ -77,6 +79,7 @@ export function VectorSizeField({
       </div>
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-1.5">
         <Input
+          disabled={disabled}
           aria-label={`${name} ${xLabel}`}
           className="font-mono"
           onBlur={commitVector}
@@ -88,6 +91,7 @@ export function VectorSizeField({
           value={draftValue.x}
         />
         <Input
+          disabled={disabled}
           aria-label={`${name} ${yLabel}`}
           className="font-mono"
           onBlur={commitVector}

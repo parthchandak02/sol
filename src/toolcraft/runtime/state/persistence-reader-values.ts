@@ -1,23 +1,9 @@
-import { isToolcraftTimelinePanelRuntimeTarget } from "../schema/runtime-targets";
-import type { ResolvedToolcraftAppSchema } from "../schema/types";
+import type { ResolvedToolcraftAppSchema } from "../schema/resolved-app-schema";
+import {
+  getToolcraftValueControls,
+  normalizeToolcraftControlValue,
+} from "./control-value-normalization";
 import { isToolcraftPersistenceRecord } from "./persistence-shared";
-
-function getKnownValueTargets(schema: ResolvedToolcraftAppSchema): Set<string> {
-  const targets = new Set<string>();
-
-  for (const section of schema.panels.controls?.sections ?? []) {
-    for (const control of Object.values(section.controls)) {
-      if (
-        control.type !== "panelActions" &&
-        !isToolcraftTimelinePanelRuntimeTarget(control.target)
-      ) {
-        targets.add(control.target);
-      }
-    }
-  }
-
-  return targets;
-}
 
 export function readValues(
   schema: ResolvedToolcraftAppSchema,
@@ -27,12 +13,24 @@ export function readValues(
     return undefined;
   }
 
-  const targets = getKnownValueTargets(schema);
+  const controls = getToolcraftValueControls(schema);
   const values: Record<string, unknown> = {};
 
-  for (const target of targets) {
+  for (const [target, control] of controls) {
     if (Object.hasOwn(value, target)) {
-      values[target] = value[target];
+      const normalized = normalizeToolcraftControlValue(control, value[target]);
+
+      values[target] = normalized.accepted
+        ? normalized.value
+        : normalized.fallback;
+    }
+  }
+
+  if (schema.persistence.storage === "localStorage") {
+    for (const target of schema.persistence.additionalValueTargets) {
+      if (!controls.has(target) && Object.hasOwn(value, target)) {
+        values[target] = value[target];
+      }
     }
   }
 

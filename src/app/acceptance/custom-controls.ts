@@ -109,10 +109,18 @@ export function getBuiltInFitCheckErrors(
     );
   }
 
+  const ownsRepeatedItems = capabilities.some((capability) =>
+    ["collection", "reorder", "selection"].includes(capability),
+  );
+
+  if (ownsRepeatedItems && !checkedBuiltIns.includes("sourceCollection")) {
+    errors.push(
+      `${label} builtInFitCheck.checkedBuiltIns must include sourceCollection when the custom control owns a repeated runtime item set whose cardinality could be source-owned.`,
+    );
+  }
+
   if (
-    capabilities.some((capability) =>
-      ["collection", "reorder", "selection"].includes(capability),
-    ) &&
+    ownsRepeatedItems &&
     !checkedBuiltIns.includes("collectionActions")
   ) {
     errors.push(

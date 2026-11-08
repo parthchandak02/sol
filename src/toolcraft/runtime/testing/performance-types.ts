@@ -1,18 +1,37 @@
 import type { ToolcraftControlSchema } from "../schema/types";
+import type { ToolcraftGpuTechniqueSurfaces } from "../rendering";
+import type {
+  AnyToolcraftRendererPipelineRegistration,
+  ToolcraftPipelineInteraction,
+  ToolcraftRendererPipeline,
+} from "../rendering/renderer-pipeline-registration";
+import type { ToolcraftPerformanceFixtureAdapterRegistry } from "./performance-fixture-adapter-types";
+import type {
+  ToolcraftWorkloadEnvelope,
+} from "./performance-workload-types";
 
-export type ToolcraftPerformanceInteraction =
-  | "animation-frame"
-  | "animation-viewport-drag"
-  | "control-change"
-  | "control-drag"
-  | "export-copy"
-  | "mask-drag"
-  | "media-import"
-  | "preview-render"
-  | "timeline-playback"
-  | "timeline-scrub"
-  | "viewport-zoom-stress"
-  | "viewport-stability";
+export type {
+  AnyToolcraftRendererPipelineRegistration,
+  ToolcraftInteractionInvalidation,
+  ToolcraftPipelineInteraction,
+  ToolcraftRenderPass,
+  ToolcraftRenderPassKind,
+  ToolcraftRenderPassOutput,
+  ToolcraftRenderPassQuality,
+  ToolcraftRenderPassRunLocation,
+  ToolcraftRendererPipeline,
+} from "../rendering/renderer-pipeline-registration";
+
+export type {
+  ToolcraftPerformanceContinuousFixtureAdapter,
+  ToolcraftPerformanceDiscreteAppliedValue,
+  ToolcraftPerformanceDiscreteFixtureAdapter,
+  ToolcraftPerformanceDiscreteFixtureDomain,
+  ToolcraftPerformanceDiscreteFixtureEntry,
+  ToolcraftPerformanceFixtureAdapter,
+  ToolcraftPerformanceFixtureAdapterRegistry,
+  ToolcraftPerformanceFixtureInverseCheckpoint,
+} from "./performance-fixture-adapter-types";
 
 export type ToolcraftOutputCompletionEvidence = "clipboard" | "download";
 
@@ -23,123 +42,95 @@ export type ToolcraftPerformanceCoverage = {
   browserTestName: string;
 };
 
-export type ToolcraftBrowserCheckPreferredRunner = "agent-browser";
-
-export type ToolcraftBrowserCheckFallbackRunner = "playwright";
-
-export type ToolcraftBrowserCheckFallbackCondition =
-  | "agent-browser-unavailable"
-  | "ci";
-
-export type ToolcraftBrowserCheckPolicy = {
-  fallbackRunner: ToolcraftBrowserCheckFallbackRunner;
-  fallbackWhen: readonly ToolcraftBrowserCheckFallbackCondition[];
-  preferredRunner: ToolcraftBrowserCheckPreferredRunner;
-};
-
-export type ToolcraftPerformanceBudget = {
-  maxExportMs?: number;
-  maxFrameGapMs?: number;
-  maxInteractionMs?: number;
-  maxLongTaskMs?: number;
-  maxPreviewMs?: number;
-  maxRenderMs?: number;
-};
-
 export type ToolcraftPerformanceValueSet = {
   default: unknown;
   max?: unknown;
   min?: unknown;
 };
 
-export type ToolcraftPerformanceFixtureKind =
-  | "custom"
-  | "high-density"
-  | "large-canvas"
-  | "large-text"
-  | "many-items"
-  | "max-value"
-  | "media";
+export type ToolcraftPerformanceCompiledFixtureCheckpointKind =
+  | "development"
+  | "interactive-max"
+  | "batch-max";
 
-export type ToolcraftPerformanceLoadMetric =
-  | "canvas-area"
-  | "count"
-  | "custom"
-  | "media-area"
-  | "numeric-max"
-  | "numeric-min"
-  | "text-length";
-
-export type ToolcraftPerformanceUserFacingRange =
-  | "experimental-above-smooth"
-  | "fully-guaranteed";
-
-export type ToolcraftPerformanceLoadEvidence = {
-  attemptedRatio: number;
-  attemptedTarget: unknown;
-  decision: string;
-  measuredResult: string;
-  optimizationAttempted?: string;
-  result: "failed" | "passed";
-  scenarioId: string;
-  target: string;
+export type ToolcraftPerformanceCompiledFixtureCheckpoint = {
+  kind: ToolcraftPerformanceCompiledFixtureCheckpointKind;
+  normalizedPressure: number;
+  values: Readonly<Record<string, number>>;
 };
 
-export type ToolcraftPerformanceLoadProfile = {
-  degradationStepPercent?: 10;
-  evidence?: readonly ToolcraftPerformanceLoadEvidence[];
-  hardLimit: unknown;
-  metric: ToolcraftPerformanceLoadMetric;
-  smoothTarget: unknown;
-  smoothTargetRatio: number;
-  target: string;
-  userFacingRange: ToolcraftPerformanceUserFacingRange;
+export type ToolcraftPerformanceCompiledDevelopment =
+  | {
+      checkpoint: ToolcraftPerformanceCompiledFixtureCheckpoint & {
+        kind: "development";
+      };
+      status: "available";
+    }
+  | {
+      reason: string;
+      status: "unavailable";
+    };
+
+type ToolcraftPerformanceCompiledFixturePlanBase = {
+  development: ToolcraftPerformanceCompiledDevelopment;
+  dimensionIds: readonly string[];
+  pathId: string;
 };
 
-export type ToolcraftPerformanceFixture = {
-  kind: ToolcraftPerformanceFixtureKind;
-  loadProfile?: ToolcraftPerformanceLoadProfile;
-  minChars?: number;
-  minCount?: number;
-  minLines?: number;
-  reason: string;
-  value?: unknown;
-};
+export type ToolcraftPerformanceCompiledInteractiveFixturePlan =
+  ToolcraftPerformanceCompiledFixturePlanBase & {
+    kind: "interactive";
+    maximum: ToolcraftPerformanceCompiledFixtureCheckpoint & {
+      kind: "interactive-max";
+    };
+  };
 
-export type ToolcraftPerformanceStressFixtureKind = ToolcraftPerformanceFixtureKind;
-export type ToolcraftPerformanceStressFixture = ToolcraftPerformanceFixture;
-export type ToolcraftPerformanceWorkloadFixture = ToolcraftPerformanceFixture;
+export type ToolcraftPerformanceCompiledBatchFixturePlan =
+  ToolcraftPerformanceCompiledFixturePlanBase & {
+    kind: "batch";
+    maximum: ToolcraftPerformanceCompiledFixtureCheckpoint & {
+      kind: "batch-max";
+    };
+  };
+
+export type ToolcraftPerformanceCompiledFixturePlan =
+  | ToolcraftPerformanceCompiledInteractiveFixturePlan
+  | ToolcraftPerformanceCompiledBatchFixturePlan;
+
+export type ToolcraftPerformanceExecutedFixtureCheckpoint =
+  ToolcraftPerformanceCompiledFixtureCheckpoint & {
+    applied: Readonly<Record<string, unknown>>;
+    observed: Readonly<Record<string, number>>;
+  };
 
 type ToolcraftPerformanceScenarioBase = ToolcraftPerformanceCoverage & {
-  budget: ToolcraftPerformanceBudget;
   controlLabel?: string;
+  coversTargets: readonly string[];
   expectedObservable: string;
   fixture: string;
   id: string;
+  pathId: string;
   target?: string;
-  stress?: boolean;
-  stressFixture?: ToolcraftPerformanceStressFixture;
-  workloadFixture?: ToolcraftPerformanceWorkloadFixture;
   uiSelector?: string;
-  values?: ToolcraftPerformanceValueSet;
-  workload: boolean;
 };
 
-type ToolcraftExportCopyPerformanceScenario = ToolcraftPerformanceScenarioBase & {
+type ToolcraftExportPerformanceScenario = ToolcraftPerformanceScenarioBase & {
   actionValue: string;
   completionEvidence: ToolcraftOutputCompletionEvidence;
+  completionDeadlineMs?: number;
   controlLabel: string;
-  interaction: "export-copy";
+  interaction: "export";
 };
 
 type ToolcraftNonExportPerformanceScenario = ToolcraftPerformanceScenarioBase & {
   actionValue?: never;
   completionEvidence?: never;
-  interaction: Exclude<ToolcraftPerformanceInteraction, "export-copy">;
+  completionDeadlineMs?: never;
+  interaction: Exclude<ToolcraftPipelineInteraction, "export">;
 };
 
 export type ToolcraftPerformanceScenario =
-  | ToolcraftExportCopyPerformanceScenario
+  | ToolcraftExportPerformanceScenario
   | ToolcraftNonExportPerformanceScenario;
 
 export type ToolcraftRendererStrategy =
@@ -150,12 +141,12 @@ export type ToolcraftRendererStrategy =
   | "webgl"
   | "webgpu";
 
-export type ToolcraftRendererWorkload =
-  | "none"
-  | "simple-composition"
-  | "text-output"
-  | "vector-output"
-  | "pixel-output";
+export type ToolcraftKernelBenchmarkDecision = {
+  candidates: readonly ToolcraftRendererStrategy[];
+  decision: string;
+  id: string;
+  selected: ToolcraftRendererStrategy;
+};
 
 export type ToolcraftSourceRepresentation =
   | "reference-runtime"
@@ -227,103 +218,58 @@ export type ToolcraftRendererLayer = {
   uiSelector?: string;
 };
 
-export type ToolcraftRendererMeasuredAlternativeEvidence = {
-  alternativeStrategy: "webgl" | "webgpu";
-  decision: string;
-  fixture: string;
-  measuredResult: string;
-  scenarioId: string;
-};
-
 export type ToolcraftRendererTechnique = {
   exportRenderer: ToolcraftExportRenderer;
   fidelityRisks: readonly string[];
+  gpu?: ToolcraftGpuTechniqueSurfaces;
   intentionalRasterizationReason?: string;
   layers?: readonly ToolcraftRendererLayer[];
-  measuredAlternativeEvidence?: readonly ToolcraftRendererMeasuredAlternativeEvidence[];
   performanceRisks: readonly string[];
   previewExportDifferenceReason?: string;
   previewRenderer: ToolcraftPreviewRenderer;
   productRepresentation: ToolcraftProductRepresentation;
   referenceRendererChangeReason?: string;
   rendererStrategy: ToolcraftRendererStrategy;
-  rendererWorkload: ToolcraftRendererWorkload;
   sourceRepresentation: ToolcraftSourceRepresentation;
   whyNotAlternativeStrategies: readonly string[];
 };
 
-export type ToolcraftRenderPassKind =
-  | "decode"
-  | "preprocess"
-  | "pixel-transform"
-  | "vector-build"
-  | "text-layout"
-  | "rasterize"
-  | "composite"
-  | "handles"
-  | "export";
-
-export type ToolcraftRenderPassRunLocation =
-  | "main"
-  | "worker"
-  | "gpu"
-  | "worker-or-gpu"
-  | "export-only";
-
-export type ToolcraftRenderPassOutput =
-  | "source"
-  | "intermediate"
-  | "preview"
-  | "overlay"
-  | "export";
-
-export type ToolcraftRenderPassQuality = "preview" | "full" | "retina" | "export";
-
-export type ToolcraftRenderPass = {
-  cacheKey?: readonly string[];
-  id: string;
-  inputs: readonly string[];
-  invalidatedBy: readonly string[];
-  kind: ToolcraftRenderPassKind;
-  output: ToolcraftRenderPassOutput;
-  quality: ToolcraftRenderPassQuality;
-  runsOn: ToolcraftRenderPassRunLocation;
-};
-
-export type ToolcraftPipelineInteraction =
-  | "animation-frame"
-  | "control-change"
-  | "control-drag"
-  | "media-import"
-  | "mask-drag"
-  | "viewport-drag"
-  | "viewport-zoom"
-  | "timeline-playback"
-  | "timeline-scrub"
-  | "export";
-
-export type ToolcraftInteractionInvalidation = {
-  interaction: ToolcraftPipelineInteraction;
-  invalidates: readonly string[];
-  mustNotInvalidate?: readonly string[];
-  targets: readonly string[];
-};
-
-export type ToolcraftRendererPipeline = {
-  interactionInvalidation: readonly ToolcraftInteractionInvalidation[];
-  passes: readonly ToolcraftRenderPass[];
-};
-
-export type ToolcraftPerformanceConfig = {
-  browserCheckPolicy?: ToolcraftBrowserCheckPolicy;
-  rendererPipeline?: ToolcraftRendererPipeline;
+export type ToolcraftPerformanceConfigBase = {
+  /** Product-owned numeric normalization adapters for non-numeric dimensions. */
+  fixtureAdapters?: ToolcraftPerformanceFixtureAdapterRegistry;
+  /** Pass-keyed decisions backed by protected current-source kernel receipts. */
+  kernelBenchmarkDecisions?: readonly ToolcraftKernelBenchmarkDecision[];
+  rendererPipeline?: ToolcraftRendererPipeline | AnyToolcraftRendererPipelineRegistration;
   rendererStrategy: ToolcraftRendererStrategy;
   rendererTechnique?: ToolcraftRendererTechnique;
-  rendererWorkload: ToolcraftRendererWorkload;
   scenarios: readonly ToolcraftPerformanceScenario[];
   usesCustomRenderer: boolean;
-  workloadTargets: readonly string[];
+  workloadEnvelope: ToolcraftWorkloadEnvelope;
 };
+
+export type ToolcraftPerformanceConfig = ToolcraftPerformanceConfigBase;
+export type ToolcraftEnvelopePerformanceConfig = ToolcraftPerformanceConfig;
+
+export function isToolcraftEnvelopePerformanceConfig(
+  config: unknown,
+): config is ToolcraftEnvelopePerformanceConfig {
+  if (
+    typeof config !== "object" ||
+    config === null ||
+    !Object.prototype.hasOwnProperty.call(config, "workloadEnvelope")
+  ) {
+    return false;
+  }
+
+  const envelope = (config as { workloadEnvelope?: unknown }).workloadEnvelope;
+
+  return (
+    typeof envelope === "object" &&
+    envelope !== null &&
+    !Array.isArray(envelope) &&
+    Array.isArray((envelope as { dimensions?: unknown }).dimensions)
+  );
+}
 
 export type ToolcraftPerformanceSensitiveControl = {
   control: ToolcraftControlSchema;

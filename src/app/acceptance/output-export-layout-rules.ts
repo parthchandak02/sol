@@ -1,24 +1,31 @@
+import type { ToolcraftArtifactExportDelivery } from "./artifact-export-intent";
 import type { ToolcraftOutputExportFacts } from "./output-export-model";
 
-export function getToolcraftOutputExportLayoutErrors(
-  facts: ToolcraftOutputExportFacts,
-): string[] {
+export function getToolcraftOutputExportLayoutErrors({
+  delivery,
+  facts,
+}: {
+  delivery: ToolcraftArtifactExportDelivery;
+  facts: ToolcraftOutputExportFacts;
+}): string[] {
+  if (
+    !delivery.imageEnabled &&
+    !delivery.svgEnabled &&
+    !delivery.videoEnabled
+  ) {
+    return [];
+  }
+
   const errors: string[] = [];
 
-  if (!facts.backgroundSection) {
+  if (facts.backgroundSection) {
     errors.push(
-      'Product apps with Export PNG must expose a separate controls section titled "Background" directly before the first export settings section.',
+      'Product apps with artifact export must not render a separate "Background" section; runtime Setup owns Background, Infinity canvas, and Color.',
     );
   }
 
-  if (
-    facts.backgroundSectionIndex >= 0 &&
-    facts.expectedOutputSettingsIndex >= 0 &&
-    facts.backgroundSectionIndex !== facts.expectedOutputSettingsIndex - 1
-  ) {
-    errors.push(
-      'The "Background" controls section must sit directly before the first export settings section: Image Export when PNG export exists, otherwise Video Export.',
-    );
+  if (!facts.setupSection || facts.setupSectionIndex !== 1) {
+    errors.push("Runtime Settings must follow the defaults action block and precede product sections.");
   }
 
   if (
@@ -27,18 +34,19 @@ export function getToolcraftOutputExportLayoutErrors(
     facts.finalExportSettingsIndex !== facts.panelActionsSectionIndex - 1
   ) {
     errors.push(
-      'Export settings must sit directly above sticky footer actions: Image Export for still apps, or Video Export after Image Export for animated apps.',
+      "The final enabled artifact export settings section must sit directly above sticky footer actions.",
     );
   }
 
   if (
-    facts.hasVideoExportAction &&
+    delivery.imageEnabled &&
+    delivery.videoEnabled &&
     facts.imageExportSectionIndex >= 0 &&
     facts.videoExportSectionIndex >= 0 &&
     facts.imageExportSectionIndex !== facts.videoExportSectionIndex - 1
   ) {
     errors.push(
-      'Animated apps with both Export PNG and Export Video must place Image Export immediately before Video Export.',
+      'Products with image and video delivery must place "Image Export" immediately before "Video Export".',
     );
   }
 

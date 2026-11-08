@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { defineToolcraft } from "@/toolcraft/runtime";
 
 import {
   contractSchemaFixture,
+  createContractSectionInventoryFixture,
+  defineContractSchemaFixture,
   validateContractAcceptance,
   validateContractAcceptanceDiagnostics,
 } from "./app-acceptance.contract-fixtures";
 import { makeControlAcceptance } from "./app-acceptance.test-utils";
-import { makeVideoExportSection } from "./app-acceptance.export-test-utils";
+import { defineExportModuleSchemaFixture } from "./app-acceptance.export-test-utils";
 import {
   playbackTimelineAcceptance,
   productDerivedEightSecondLoop,
@@ -24,6 +25,10 @@ describe("starter acceptance animation intent contract", () => {
             {
               controls: {
                 pause: {
+                  applicability: {
+                    mode: "always" as const,
+                    origin: "explicit" as const,
+                  },
                   defaultValue: false,
                   label: "Paused",
                   orderRole: "primary",
@@ -31,6 +36,10 @@ describe("starter acceptance animation intent contract", () => {
                   type: "switch",
                 },
                 restart: {
+                  applicability: {
+                    mode: "always" as const,
+                    origin: "explicit" as const,
+                  },
                   actions: [
                     {
                       icon: "rotate-ccw",
@@ -45,12 +54,17 @@ describe("starter acceptance animation intent contract", () => {
                   type: "actions",
                 },
               },
+              id: "run",
               title: "Run",
             },
           ],
           title: "Controls",
         },
-        timeline: { defaultDurationSeconds: 8, enabled: true, mode: "playback" as const },
+        timeline: {
+          defaultDurationSeconds: 8,
+          enabled: true,
+          mode: "playback" as const,
+        },
       },
     } as const;
 
@@ -62,8 +76,11 @@ describe("starter acceptance animation intent contract", () => {
           {
             automated: true,
             automatedTestName: "paused switch freezes output",
-            browser: true,
-            browserTestName: "browser: paused switch freezes output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: paused switch freezes output",
+            },
             componentType: "switch",
             evidence: "timeline-output",
             expectedObservable: "Paused switch freezes the timeline output.",
@@ -76,11 +93,15 @@ describe("starter acceptance animation intent contract", () => {
           {
             automated: true,
             automatedTestName: "restart action resets output",
-            browser: true,
-            browserTestName: "browser: restart action resets output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: restart action resets output",
+            },
             componentType: "actions",
             evidence: "timeline-output",
-            expectedObservable: "Restart returns animation output to the first frame.",
+            expectedObservable:
+              "Restart returns animation output to the first frame.",
             fixture: "timeline fixture",
             id: "animation.actions",
             kind: "control",
@@ -107,6 +128,10 @@ describe("starter acceptance animation intent contract", () => {
             {
               controls: {
                 pause: {
+                  applicability: {
+                    mode: "always" as const,
+                    origin: "explicit" as const,
+                  },
                   defaultValue: false,
                   label: "Pause",
                   orderRole: "primary",
@@ -114,6 +139,7 @@ describe("starter acceptance animation intent contract", () => {
                   type: "switch",
                 },
               },
+              id: "animation",
               title: "Animation",
             },
           ],
@@ -131,8 +157,11 @@ describe("starter acceptance animation intent contract", () => {
           {
             automated: true,
             automatedTestName: "pause switch freezes output",
-            browser: true,
-            browserTestName: "browser: pause switch freezes output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: pause switch freezes output",
+            },
             componentType: "switch",
             evidence: "timeline-output",
             expectedObservable: "Pause switch freezes animation output.",
@@ -159,6 +188,10 @@ describe("starter acceptance animation intent contract", () => {
             {
               controls: {
                 speed: {
+                  applicability: {
+                    mode: "always" as const,
+                    origin: "explicit" as const,
+                  },
                   defaultValue: 64,
                   label: "Speed",
                   max: 100,
@@ -169,73 +202,91 @@ describe("starter acceptance animation intent contract", () => {
                   unit: "%",
                 },
               },
+              id: "animation",
               title: "Animation",
             },
           ],
           title: "Controls",
         },
-        timeline: undefined,
       },
     } as const;
 
     expect(
       validateContractAcceptanceDiagnostics({
         schema: schemaWithAnimationControls,
-        acceptance: [
-          makeControlAcceptance("animation.speed", "slider"),
-        ],
+        acceptance: [makeControlAcceptance("animation.speed", "slider")],
       }),
-    ).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        message:
-          'Animation controls "Animation / speed" (animation.speed) exist while panels.timeline is omitted. Use panels.timeline mode "playback" for product animation transport, mode "keyframes" for editable keyframes, or declare appTransferMode.animationIntent mode "autonomous" with coverage proving there is no user-facing transport.',
-        ruleId: "timeline-mode-choice",
-        severity: "warning",
-      }),
-    ]));
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message:
+            'Animation controls "Animation / speed" (animation.speed) exist while panels.timeline is omitted. Use panels.timeline mode "playback" for product animation transport, mode "keyframes" for editable keyframes, or declare appTransferMode.animationIntent mode "autonomous" with coverage proving there is no user-facing transport.',
+          ruleId: "timeline-mode-choice",
+          severity: "warning",
+        }),
+      ]),
+    );
   });
 
   it("accepts explicit autonomous animation intent for decorative self-running output", () => {
-    const schemaWithAutonomousAnimation = defineToolcraft({
-      canvas: {
-        enabled: true,
-        sizing: { mode: "editable-output" },
-        upload: true,
-      },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                shimmer: {
-                  defaultValue: 40,
-                  label: "Shimmer",
-                  max: 100,
-                  min: 0,
-                  orderRole: "detail",
-                  target: "animation.shimmer",
-                  type: "slider",
-                  unit: "%",
-                },
-              },
-              title: "Animation",
-            },
-          ],
-          title: "Controls",
+    const schemaWithAutonomousAnimation = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: {
+          enabled: true,
+          sizing: { mode: "editable-output" },
         },
-        timeline: undefined,
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "animation",
+                controls: {
+                  shimmer: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: 40,
+                    label: "Shimmer",
+                    max: 100,
+                    min: 0,
+                    orderRole: "detail",
+                    target: "animation.shimmer",
+                    type: "slider",
+                    unit: "%",
+                  },
+                },
+                title: "Animation",
+              },
+            ],
+            title: "Controls",
+          },
+        },
+        toolbar: {
+          history: true,
+          radar: true,
+          zoom: true,
+        },
+        persistence: { storage: "none" },
       },
-      toolbar: {
-        history: true,
-        radar: true,
-        zoom: true,
-      },
+      modules: [],
     });
 
     expect(
       validateContractAcceptance({
         schema: schemaWithAutonomousAnimation,
         acceptance: [makeControlAcceptance("animation.shimmer", "slider")],
+        sectionInventory: createContractSectionInventoryFixture(
+          schemaWithAutonomousAnimation,
+          [
+            {
+              entity: "Animation",
+              entityId: "animation",
+              finiteSelectors: [],
+              groupingReason:
+                "Shimmer controls the decorative animation output.",
+              id: "animation",
+            },
+          ],
+        ),
         transferMode: {
           animationIntent: {
             behaviorCoverage: [
@@ -247,87 +298,54 @@ describe("starter acceptance animation intent contract", () => {
               "no-export-at-time",
             ],
             mode: "autonomous",
-            reason: "The shimmer is decorative self-running output and does not expose product time transport.",
+            reason:
+              "The shimmer is decorative self-running output and does not expose product time transport.",
           },
           mode: "new-toolcraft-app",
+          referenceInputs: [],
         },
       }),
     ).toEqual([]);
   });
 
-  it("requires a top timeline when video export exists", () => {
-    const schemaWithVideoExportWithoutTimeline = defineToolcraft({
-      canvas: {
-        enabled: true,
-        sizing: { mode: "editable-output" },
-      },
-      panels: {
-        controls: {
-          sections: [
-            makeVideoExportSection(),
-            {
-              actionGroup: "secondary",
-              controls: {
-                outputActions: {
-                  actions: [
-                    {
-                      icon: "upload-simple",
-                      label: "Export Video",
-                      role: "export-video",
-                      value: "export.video",
-                    },
-                  ],
-                  target: "actions.output",
-                  type: "panelActions",
-                },
-              },
-              title: "Export",
-            },
-          ],
-          title: "Controls",
-        },
-      },
+  it("supplies the top playback timeline when video export exists", () => {
+    const schemaWithVideoExport = defineExportModuleSchemaFixture({
+      video: true,
     });
 
-    expect(validateContractAcceptance({
-      schema: schemaWithVideoExportWithoutTimeline,
-    })).toContain(
+    expect(schemaWithVideoExport.panels.timeline).toMatchObject({
+      mode: "playback",
+    });
+    expect(
+      validateContractAcceptance({
+        schema: schemaWithVideoExport,
+      }),
+    ).not.toContain(
+      'Apps with Export Video must enable the top Toolcraft timeline. Use panels.timeline mode "playback" for product animation transport, or mode "keyframes" when exported animation is driven by keyframes; autonomous no-timeline animation is only allowed when there is no video export.',
+    );
+  });
+
+  it("requires a top timeline when video export exists", () => {
+    const schemaWithVideoExport = defineExportModuleSchemaFixture({
+      video: true,
+    });
+    const schemaWithVideoExportWithoutTimeline = {
+      ...schemaWithVideoExport,
+      panels: { ...schemaWithVideoExport.panels, timeline: undefined },
+    };
+
+    expect(
+      validateContractAcceptance({
+        schema: schemaWithVideoExportWithoutTimeline,
+      }),
+    ).toContain(
       'Apps with Export Video must enable the top Toolcraft timeline. Use panels.timeline mode "playback" for product animation transport, or mode "keyframes" when exported animation is driven by keyframes; autonomous no-timeline animation is only allowed when there is no video export.',
     );
   });
 
   it("rejects autonomous animation intent when video export exists", () => {
-    const schemaWithAutonomousVideoExport = defineToolcraft({
-      canvas: {
-        enabled: true,
-        sizing: { mode: "editable-output" },
-      },
-      panels: {
-        controls: {
-          sections: [
-            makeVideoExportSection(),
-            {
-              actionGroup: "secondary",
-              controls: {
-                outputActions: {
-                  actions: [
-                    {
-                      icon: "upload-simple",
-                      label: "Export Video",
-                      role: "export-video",
-                      value: "export.video",
-                    },
-                  ],
-                  target: "actions.output",
-                  type: "panelActions",
-                },
-              },
-              title: "Export",
-            },
-          ],
-          title: "Controls",
-        },
-      },
+    const schemaWithAutonomousVideoExport = defineExportModuleSchemaFixture({
+      video: true,
     });
 
     expect(
@@ -345,9 +363,11 @@ describe("starter acceptance animation intent contract", () => {
               "no-export-at-time",
             ],
             mode: "autonomous",
-            reason: "The shader is decorative self-running output with no transport controls.",
+            reason:
+              "The shader is decorative self-running output with no transport controls.",
           },
           mode: "new-toolcraft-app",
+          referenceInputs: [],
         },
       }),
     ).toContain(
@@ -360,7 +380,11 @@ describe("starter acceptance animation intent contract", () => {
       ...contractSchemaFixture,
       panels: {
         ...contractSchemaFixture.panels,
-        timeline: { defaultDurationSeconds: 8, enabled: true, mode: "playback" as const },
+        timeline: {
+          defaultDurationSeconds: 8,
+          enabled: true,
+          mode: "playback" as const,
+        },
       },
     };
 
@@ -374,6 +398,7 @@ describe("starter acceptance animation intent contract", () => {
             mode: "timeline-keyframes",
           },
           mode: "new-toolcraft-app",
+          referenceInputs: [],
         },
       }),
     ).toContain(

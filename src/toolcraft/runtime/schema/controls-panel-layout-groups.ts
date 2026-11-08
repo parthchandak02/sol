@@ -1,7 +1,10 @@
+import {
+  preserveToolcraftInternalControlSectionRegistration,
+} from "./controls-panel-section-id";
 import type {
   ToolcraftControlLayoutGroupSchema,
   ToolcraftControlSchema,
-  ToolcraftControlSectionSchema,
+  ToolcraftControlSectionSchemaBase,
 } from "./types";
 
 const maxAutoInlineControlLabelLength = 18;
@@ -15,7 +18,9 @@ export function filterLayoutGroupsForControlIds(
       ...layoutGroup,
       controls: layoutGroup.controls.filter((controlId) => controlIds.has(controlId)),
     }))
-    .filter((layoutGroup) => layoutGroup.controls.length > 1);
+    .filter((layoutGroup) =>
+      layoutGroup.controls.length >= (layoutGroup.preserveColumns ? 1 : 2),
+    );
 }
 
 function isShortControlLabel(id: string, control: ToolcraftControlSchema): boolean {
@@ -85,9 +90,12 @@ function shouldAutoInlineControls(
   return shouldAutoInlineMixedFieldControls(first, second);
 }
 
-export function addAutoLayoutGroupsToSection(
-  section: ToolcraftControlSectionSchema,
-): ToolcraftControlSectionSchema {
+export function addAutoLayoutGroupsToSection<
+  TControl extends ToolcraftControlSchema,
+  TSection extends ToolcraftControlSectionSchemaBase<TControl>,
+>(
+  section: TSection,
+): TSection {
   if (section.layout === "standalone" || section.actionGroup) {
     return section;
   }
@@ -135,10 +143,15 @@ export function addAutoLayoutGroupsToSection(
 
   const layoutGroups = [...explicitLayoutGroups, ...autoLayoutGroups];
 
-  return layoutGroups.length > 0
+  const normalizedSection = (layoutGroups.length > 0
     ? {
         ...section,
         layoutGroups,
       }
-    : section;
+    : section) as TSection;
+
+  return preserveToolcraftInternalControlSectionRegistration(
+    section,
+    normalizedSection,
+  );
 }

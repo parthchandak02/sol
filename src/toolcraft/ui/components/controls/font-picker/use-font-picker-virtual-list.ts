@@ -9,6 +9,12 @@ import {
 } from "./font-catalog";
 import { queueFontPickerPreviewLoadBatch } from "./font-preview-loader";
 import {
+  cancelBrowserAnimationFrame,
+  requestBrowserAnimationFrame,
+  subscribeBrowserElementEvent,
+  subscribeBrowserWindowEvent,
+} from "../../primitives/browser-transport";
+import {
   fontItemHeightPx,
   fontListHeightWithFooterPx,
   fontListOverscanItems,
@@ -207,11 +213,11 @@ export function useFontPickerVirtualList({
       return undefined;
     }
 
-    const frame = window.requestAnimationFrame(() => {
+    const frame = requestBrowserAnimationFrame(() => {
       searchInputRef.current?.focus({ preventScroll: true });
     });
 
-    return () => window.cancelAnimationFrame(frame);
+    return () => cancelBrowserAnimationFrame(frame);
   }, [open]);
 
   React.useEffect(() => {
@@ -219,12 +225,12 @@ export function useFontPickerVirtualList({
       return undefined;
     }
 
-    const frame = window.requestAnimationFrame(() => {
+    const frame = requestBrowserAnimationFrame(() => {
       shouldScrollSelectedOnOpenRef.current = false;
       scrollToFontIndex(selectedFontIndex);
     });
 
-    return () => window.cancelAnimationFrame(frame);
+    return () => cancelBrowserAnimationFrame(frame);
   }, [open, scrollToFontIndex, selectedFontIndex]);
 
   React.useEffect(() => {
@@ -243,10 +249,10 @@ export function useFontPickerVirtualList({
     };
     const handleScroll = () => {
       if (scrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollFrameRef.current);
+        cancelBrowserAnimationFrame(scrollFrameRef.current);
       }
 
-      scrollFrameRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRef.current = requestBrowserAnimationFrame(() => {
         scrollFrameRef.current = null;
         const nextScrollTop = viewportElement.scrollTop;
         scrollDirectionRef.current =
@@ -257,15 +263,20 @@ export function useFontPickerVirtualList({
     };
 
     syncMetrics();
-    viewportElement.addEventListener("scroll", handleScroll, { passive: true });
-    window.addEventListener("resize", syncMetrics);
+    const unsubscribeScroll = subscribeBrowserElementEvent(
+      viewportElement,
+      "scroll",
+      handleScroll,
+      { passive: true },
+    );
+    const unsubscribeResize = subscribeBrowserWindowEvent("resize", syncMetrics);
 
     return () => {
-      viewportElement.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", syncMetrics);
+      unsubscribeScroll();
+      unsubscribeResize();
 
       if (scrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollFrameRef.current);
+        cancelBrowserAnimationFrame(scrollFrameRef.current);
         scrollFrameRef.current = null;
       }
     };

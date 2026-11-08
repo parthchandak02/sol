@@ -48,7 +48,7 @@ export function getReferenceBehaviorCoverageErrors({
       );
     }
 
-    if (!entry.browser || !entry.browserTestName.trim()) {
+    if (entry.browser === false) {
       errors.push(
         `${entry.id} must have browser coverage proving reference behavior "${coverage}".`,
       );

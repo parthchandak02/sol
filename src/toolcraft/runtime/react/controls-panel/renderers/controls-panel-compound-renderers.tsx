@@ -14,10 +14,10 @@ import {
   type ColorControlInput,
   type ColorControlInputPair,
   type ControlChangeMeta,
-  type ImagePickerItem,
 } from "@/toolcraft/ui";
 
 import type { ToolcraftControlSchema } from "../../../schema/types";
+import { isToolcraftBuiltInControlSchema } from "../../../schema/control-schema";
 import {
   asColorOpacityValue,
   asColorValue,
@@ -54,6 +54,7 @@ export type CompoundShouldShowColorFieldLabel = (args: {
 }) => boolean;
 
 export type CompoundControlRenderArgs = {
+  plainColorFullWidth?: boolean;
   commit: CompoundControlCommit;
   commitWithLabel: CompoundControlCommitWithLabel;
   control: ToolcraftControlSchema;
@@ -170,6 +171,7 @@ export function renderCompoundColorGroup({
 }
 
 export function renderCompoundControl({
+  plainColorFullWidth = true,
   commit,
   commitWithLabel,
   control,
@@ -181,6 +183,7 @@ export function renderCompoundControl({
   value,
   withKeyframeLabelAction,
 }: CompoundControlRenderArgs): React.ReactNode | null {
+  if (!isToolcraftBuiltInControlSchema(control)) return null;
   switch (control.type) {
     case "channelMixer": {
       const channelMixerName = name;
@@ -213,6 +216,7 @@ export function renderCompoundControl({
       return withKeyframeLabelAction({
         children: (
           <Color
+            fullWidth={plainColorFullWidth}
             hex={colorValue.hex}
             key={id}
             name={name}
@@ -325,7 +329,7 @@ export function renderCompoundControl({
     case "imagePicker":
       return (
         <ImagePicker
-          items={control.items as readonly ImagePickerItem[] | undefined}
+          items={control.items}
           key={id}
           name={name}
           onValueChange={commit}

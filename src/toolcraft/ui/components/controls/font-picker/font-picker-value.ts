@@ -7,6 +7,7 @@ import {
 } from "./font-catalog";
 
 export type FontPickerLetterSpacingPreset =
+  | "tightest"
   | "tight"
   | "tighter"
   | "normal"
@@ -19,6 +20,7 @@ export type FontPickerLineHeightPreset =
   | "none"
   | "normal"
   | "relaxed"
+  | "spacious"
   | "snug"
   | "tight";
 
@@ -52,6 +54,7 @@ export const letterSpacingSteps: Array<{
   numericValue: number;
   value: FontPickerLetterSpacingPreset;
 }> = [
+  { label: "Tightest", numericValue: -0.1, value: "tightest" },
   { label: "Tighter", numericValue: -0.05, value: "tighter" },
   { label: "Tight", numericValue: -0.025, value: "tight" },
   { label: "Normal", numericValue: 0, value: "normal" },
@@ -70,6 +73,7 @@ export const lineHeightSteps: Array<{
   { label: "Snug", numericValue: 1.375, value: "snug" },
   { label: "Normal", numericValue: 1.5, value: "normal" },
   { label: "Relaxed", numericValue: 1.625, value: "relaxed" },
+  { label: "Spacious", numericValue: 1.75, value: "spacious" },
   { label: "Loose", numericValue: 2, value: "loose" },
 ];
 

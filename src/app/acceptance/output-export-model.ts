@@ -4,6 +4,11 @@ import type {
 } from "@/toolcraft/runtime";
 
 import { getControlLabelText } from "./controls";
+import {
+  schemaHasPngExportPanelAction,
+  schemaHasSvgExportPanelAction,
+  schemaHasVideoExportPanelAction,
+} from "./output-export-actions";
 import { normalizeToolcraftSemanticText } from "./semantic";
 
 export type ToolcraftControlsSection = NonNullable<
@@ -13,17 +18,23 @@ export type ToolcraftControlsSection = NonNullable<
 export type ToolcraftOutputExportFacts = {
   backgroundColorEntry: readonly [string, ToolcraftControlSchema] | undefined;
   backgroundSection: ToolcraftControlsSection | undefined;
-  backgroundSectionIndex: number;
-  expectedOutputSettingsIndex: number;
   finalExportSettingsIndex: number;
+  hasImageExportAction: boolean;
+  hasSvgExportAction: boolean;
   hasVideoExportAction: boolean;
   imageExportSection: ToolcraftControlsSection | undefined;
   imageExportSectionIndex: number;
   imageFormatEntry: readonly [string, ToolcraftControlSchema] | undefined;
   imageResolutionEntry: readonly [string, ToolcraftControlSchema] | undefined;
   includeBackgroundEntry: readonly [string, ToolcraftControlSchema] | undefined;
+  infinityCanvasEntry: readonly [string, ToolcraftControlSchema] | undefined;
   panelActionsSectionIndex: number;
+  setupSection: ToolcraftControlsSection | undefined;
+  setupSectionIndex: number;
+  videoExportSection: ToolcraftControlsSection | undefined;
   videoExportSectionIndex: number;
+  videoFormatEntry: readonly [string, ToolcraftControlSchema] | undefined;
+  videoResolutionEntry: readonly [string, ToolcraftControlSchema] | undefined;
 };
 
 export function getSearchableControlText({
@@ -45,9 +56,13 @@ export function getSearchableControlText({
     .replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
-function getFirstPanelActionsSectionIndex(schema: ResolvedToolcraftAppSchema): number {
+function getFirstPanelActionsSectionIndex(
+  schema: ResolvedToolcraftAppSchema,
+): number {
   return (schema.panels.controls?.sections ?? []).findIndex((section) =>
-    Object.values(section.controls).some((control) => control.type === "panelActions"),
+    Object.values(section.controls).some(
+      (control) => control.type === "panelActions",
+    ),
   );
 }
 
@@ -58,7 +73,8 @@ function getSchemaControlsSectionByTitle(
   const normalizedTitle = normalizeToolcraftSemanticText(title);
 
   return (schema.panels.controls?.sections ?? []).find(
-    (section) => normalizeToolcraftSemanticText(section.title) === normalizedTitle,
+    (section) =>
+      normalizeToolcraftSemanticText(section.title) === normalizedTitle,
   );
 }
 
@@ -81,7 +97,9 @@ function getSectionControlEntryByTarget(
     return undefined;
   }
 
-  return Object.entries(section.controls).find(([, control]) => control.target === target);
+  return Object.entries(section.controls).find(
+    ([, control]) => control.target === target,
+  );
 }
 
 function getOutputBackgroundColorEntry(
@@ -105,26 +123,45 @@ function getOutputBackgroundColorEntry(
 }
 
 export function buildToolcraftOutputExportFacts({
-  hasVideoExportAction,
   schema,
 }: {
-  hasVideoExportAction: boolean;
   schema: ResolvedToolcraftAppSchema;
 }): ToolcraftOutputExportFacts {
-  const backgroundSection = getSchemaControlsSectionByTitle(schema, "Background");
-  const imageExportSection = getSchemaControlsSectionByTitle(schema, "Image Export");
-  const imageExportSectionIndex = getSchemaControlsSectionIndexByTitle(schema, "Image Export");
-  const videoExportSectionIndex = getSchemaControlsSectionIndexByTitle(schema, "Video Export");
+  const backgroundSection = getSchemaControlsSectionByTitle(
+    schema,
+    "Background",
+  );
+  const setupSection = schema.panels.controls?.sections.find((section) => section.id === "runtime.setup");
+  const imageExportSection = getSchemaControlsSectionByTitle(
+    schema,
+    "Image Export",
+  );
+  const videoExportSection = getSchemaControlsSectionByTitle(
+    schema,
+    "Video Export",
+  );
+  const imageExportSectionIndex = getSchemaControlsSectionIndexByTitle(
+    schema,
+    "Image Export",
+  );
+  const videoExportSectionIndex = getSchemaControlsSectionIndexByTitle(
+    schema,
+    "Video Export",
+  );
+  const hasImageExportAction = schemaHasPngExportPanelAction(schema);
+  const hasSvgExportAction = schemaHasSvgExportPanelAction(schema);
+  const hasVideoExportAction = schemaHasVideoExportPanelAction(schema);
 
   return {
-    backgroundColorEntry: getOutputBackgroundColorEntry(backgroundSection),
+    backgroundColorEntry: getOutputBackgroundColorEntry(setupSection),
     backgroundSection,
-    backgroundSectionIndex: getSchemaControlsSectionIndexByTitle(schema, "Background"),
-    expectedOutputSettingsIndex:
-      imageExportSectionIndex >= 0 ? imageExportSectionIndex : videoExportSectionIndex,
     finalExportSettingsIndex: hasVideoExportAction
       ? videoExportSectionIndex
-      : imageExportSectionIndex,
+      : hasImageExportAction
+        ? imageExportSectionIndex
+        : -1,
+    hasImageExportAction,
+    hasSvgExportAction,
     hasVideoExportAction,
     imageExportSection,
     imageExportSectionIndex,
@@ -137,10 +174,25 @@ export function buildToolcraftOutputExportFacts({
       "export.image.resolution",
     ),
     includeBackgroundEntry: getSectionControlEntryByTarget(
-      backgroundSection,
+      setupSection,
       "export.includeBackground",
     ),
+    infinityCanvasEntry: getSectionControlEntryByTarget(
+      setupSection,
+      "canvas.infinity",
+    ),
     panelActionsSectionIndex: getFirstPanelActionsSectionIndex(schema),
+    setupSection,
+    setupSectionIndex: schema.panels.controls?.sections.findIndex((section) => section.id === "runtime.setup") ?? -1,
+    videoExportSection,
     videoExportSectionIndex,
+    videoFormatEntry: getSectionControlEntryByTarget(
+      videoExportSection,
+      "export.video.format",
+    ),
+    videoResolutionEntry: getSectionControlEntryByTarget(
+      videoExportSection,
+      "export.video.resolution",
+    ),
   };
 }

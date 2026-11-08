@@ -19,6 +19,7 @@ type TimelinePanelHeaderProps = {
   playbackReady: boolean;
   onDurationCommit: (value: string) => void;
   onScrubKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  onScrubLostPointerCapture: () => void;
   onScrubPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onScrubPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
   onScrubPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -147,6 +148,7 @@ function TimelinePlaybackStrip({
   durationSeconds,
   isScrubbing,
   onKeyDown,
+  onLostPointerCapture,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -156,6 +158,7 @@ function TimelinePlaybackStrip({
   durationSeconds: number;
   isScrubbing: boolean;
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
+  onLostPointerCapture: () => void;
   onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
@@ -174,6 +177,7 @@ function TimelinePlaybackStrip({
         isScrubbing && 'cursor-grabbing',
       )}
       data-dragging={isScrubbing ? 'true' : undefined}
+      onLostPointerCapture={onLostPointerCapture}
       onKeyDown={onKeyDown}
       onPointerCancel={onPointerUp}
       onPointerDown={onPointerDown}
@@ -300,6 +304,7 @@ export function TimelinePanelHeader({
   playbackReady,
   onDurationCommit,
   onScrubKeyDown,
+  onScrubLostPointerCapture,
   onScrubPointerDown,
   onScrubPointerMove,
   onScrubPointerUp,
@@ -393,6 +398,7 @@ export function TimelinePanelHeader({
           durationSeconds={durationSeconds}
           isScrubbing={isScrubbing}
           onKeyDown={onScrubKeyDown}
+          onLostPointerCapture={onScrubLostPointerCapture}
           onPointerDown={onScrubPointerDown}
           onPointerMove={onScrubPointerMove}
           onPointerUp={onScrubPointerUp}

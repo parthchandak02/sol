@@ -14,10 +14,11 @@ export function normalizeCanvasMediaRotation(
 export function getCanvasMediaTransformStyle(
   transform: ToolcraftMediaTransform | undefined,
   canvasSize: ToolcraftCanvasSize,
+  fit: "cover" | "element" = "cover",
 ): CSSProperties {
   const rotationDeg = normalizeCanvasMediaRotation(transform?.rotationDeg);
   const coverScale =
-    rotationDeg === 90 || rotationDeg === 270
+    fit === "cover" && (rotationDeg === 90 || rotationDeg === 270)
       ? Math.max(canvasSize.width / canvasSize.height, canvasSize.height / canvasSize.width)
       : 1;
   const scaleX = (transform?.flipHorizontal ? -1 : 1) * coverScale;

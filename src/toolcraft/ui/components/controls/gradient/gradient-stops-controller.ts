@@ -28,6 +28,7 @@ import {
   removeGradientStop,
   updateStopAt,
 } from "./gradient-control-utils";
+import { subscribeBrowserWindowEvent } from "../../primitives/browser-transport";
 
 const playControlDragEndSound = () => undefined;
 const playControlDragStartSound = () => undefined;
@@ -199,14 +200,14 @@ function useGradientStopDragWindowEvents({
       dragHistoryGroupRef.current = null;
     }
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", stopDragging);
-    window.addEventListener("pointercancel", stopDragging);
+    const unsubscribeMove = subscribeBrowserWindowEvent("pointermove", handlePointerMove);
+    const unsubscribeUp = subscribeBrowserWindowEvent("pointerup", stopDragging);
+    const unsubscribeCancel = subscribeBrowserWindowEvent("pointercancel", stopDragging);
 
     return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", stopDragging);
-      window.removeEventListener("pointercancel", stopDragging);
+      unsubscribeMove();
+      unsubscribeUp();
+      unsubscribeCancel();
     };
   });
 }

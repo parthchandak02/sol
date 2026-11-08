@@ -1,195 +1,295 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
-import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { collectToolcraftFrameworkOwnedLocalPaths } from "./toolcraft-source-ownership.mjs";
-import { collectToolcraftSourceInventory } from "./toolcraft-source-inventory.mjs";
+import { createToolcraftPrivateEvidenceImportViolation } from "./toolcraft-product-evidence-import-policy.mjs";
+import { getToolcraftResolvedUiModuleKind } from
+  "./toolcraft-product-boundary-module-policy.mjs";
+import { isToolcraftTypeScriptCompilerAvailable } from "./toolcraft-typescript-source-evidence.mjs";
 
 function compareCodeUnits(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-async function resolveProtectedFilePaths(rootDir, protectedFilePaths) {
-  if (protectedFilePaths) return [...protectedFilePaths];
+const capabilityProofPathPattern =
+  /^src\/app\/acceptance\/capability-proofs(?:\/|$)/u;
+const runtimeProductionPathPattern = /^src\/toolcraft\/runtime(?:\/|$)/u;
+const starterVerificationPathPattern =
+  /^src\/app\/(?:acceptance(?:\/|$)|app-acceptance(?:[./]|$)|test-evidence(?:\/|$))/u;
+const runtimeForbiddenImportPathPattern =
+  /^(?:src\/app(?:\/|$)|e2e(?:\/|$))/u;
 
-  return collectToolcraftFrameworkOwnedLocalPaths(rootDir);
+function createCapabilityProofBoundaryViolation(entry, moduleImport) {
+  if (
+    starterVerificationPathPattern.test(entry.repoPath) ||
+    !capabilityProofPathPattern.test(moduleImport.resolvedRepoPath ?? "")
+  ) {
+    return null;
+  }
+
+  return {
+    column: 1,
+    kind: "capability-proof-boundary",
+    line: 1,
+    message:
+      "Capability proof recipes are verification-owned. Product and runtime production source must not import or bridge them.",
+    repoPath: entry.repoPath,
+  };
+}
+
+function createRuntimeProductBoundaryViolation(entry, moduleImport) {
+  const importedPath = moduleImport.resolvedRepoPath ?? "";
+  if (
+    !runtimeForbiddenImportPathPattern.test(importedPath) ||
+    capabilityProofPathPattern.test(importedPath)
+  ) {
+    return null;
+  }
+
+  return {
+    column: 1,
+    kind: "starter-verification-boundary",
+    line: 1,
+    message:
+      "Runtime production source must not import starter app or browser verification source.",
+    repoPath: entry.repoPath,
+  };
 }
 
 export async function evaluateToolcraftProductBoundary({
+  aliases,
   allowMissingCompiler = false,
+  inventory: providedInventory,
+  localDependencyGraph: providedLocalDependencyGraph,
   protectedFilePaths,
   rootDir,
 } = {}) {
   const resolvedRootDir =
     rootDir ?? path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-  const inventory = await collectToolcraftSourceInventory({
-    protectedFilePaths: await resolveProtectedFilePaths(
-      resolvedRootDir,
-      protectedFilePaths,
-    ),
-    rootDir: resolvedRootDir,
-    sourceRoots: ["src", "e2e"],
-  });
-  const productEntries = inventory.entries.filter(
-    (entry) => entry.owner === "product" && entry.role === "production",
-  );
-  const violations = [];
-  let collectToolcraftModuleSpecifiers;
-  let inspectToolcraftProductCss;
-  let inspectToolcraftProductSource;
-  let inspectToolcraftModuleLoading;
-  let inspectToolcraftReservedEvidenceAccess;
-
-  try {
-    ({
-      collectToolcraftModuleSpecifiers,
-      inspectToolcraftProductCss,
-      inspectToolcraftProductSource,
-    } = await import("./toolcraft-product-boundary-ast.mjs"));
-    ({
-      inspectToolcraftModuleLoading,
-      inspectToolcraftReservedEvidenceAccess,
-    } = await import("./toolcraft-product-evidence-boundary-ast.mjs"));
-  } catch (error) {
-    const isMissingTypeScript =
-      error?.code === "ERR_MODULE_NOT_FOUND" &&
-      String(error.message).includes("package 'typescript'");
-    if (!allowMissingCompiler || !isMissingTypeScript) throw error;
-
+  if (!isToolcraftTypeScriptCompilerAvailable()) {
+    if (!allowMissingCompiler) {
+      throw new Error(
+        "TypeScript is required to evaluate the Toolcraft product boundary.",
+      );
+    }
     return {
-      filesystemViolations: inventory.filesystemViolations,
-      productSourceCount: productEntries.length,
+      filesystemViolations: [],
+      productSourceCount: 0,
       skippedReason:
-        "TypeScript is not installed; product AST boundary validation is deferred until dependencies are installed.",
+        "Toolcraft product boundary check passed (dependency-backed graph and AST checks are deferred until dependencies are installed).",
       violations: [],
     };
   }
-
-  const entryByAbsolutePath = new Map(
-    inventory.entries.map((entry) => [path.resolve(entry.absolutePath), entry]),
-  );
-  const moduleExtensions = [
-    ".ts",
-    ".tsx",
-    ".mts",
-    ".cts",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".css",
+  const [
+    { createToolcraftLocalDependencyGraph },
+    dependencyResolution,
+    { collectToolcraftFrameworkOwnedLocalPaths },
+    { collectToolcraftProductProgramBoundaryEvidence },
+    { collectToolcraftSourceInventory },
+  ] = await Promise.all([
+    import("./toolcraft-local-dependency-graph.mjs"),
+    import("./toolcraft-product-dependency-resolution.mjs"),
+    import("./toolcraft-source-ownership.mjs"),
+    import("./toolcraft-product-program-boundary-evidence.mjs"),
+    import("./toolcraft-source-inventory.mjs"),
+  ]);
+  const resolvedProtectedFilePaths =
+    protectedFilePaths ??
+    (await collectToolcraftFrameworkOwnedLocalPaths(resolvedRootDir));
+  const inventory =
+    providedInventory ??
+    (await collectToolcraftSourceInventory({
+      includeResourceFiles: true,
+      protectedFilePaths: resolvedProtectedFilePaths,
+      rootDir: resolvedRootDir,
+      sourceRoots: ["src", "e2e"],
+    }));
+  const configuredAliases =
+    aliases ??
+    (await dependencyResolution.loadToolcraftLocalModuleAliases({
+      rootDir: resolvedRootDir,
+      tsconfigPaths: ["tsconfig.json"],
+    }));
+  const localAliases = [
+    ...configuredAliases,
+    ...dependencyResolution.createToolcraftDefaultSourceAliases(
+      resolvedRootDir,
+    ),
   ];
-
-  function resolveLocalEntry(entry, moduleSpecifier) {
-    let basePath;
-    if (moduleSpecifier.startsWith("@/") || moduleSpecifier.startsWith("#/")) {
-      basePath = path.resolve(resolvedRootDir, "src", moduleSpecifier.slice(2));
-    } else if (moduleSpecifier.startsWith("/")) {
-      basePath = path.resolve(resolvedRootDir, moduleSpecifier.slice(1));
-    } else if (moduleSpecifier.startsWith(".")) {
-      basePath = path.resolve(path.dirname(entry.absolutePath), moduleSpecifier);
-    } else {
-      return {};
-    }
-
-    const candidates = [
-      basePath,
-      ...moduleExtensions.map((extension) => `${basePath}${extension}`),
-      ...moduleExtensions.map((extension) => path.join(basePath, `index${extension}`)),
-    ];
-    const importedEntry = candidates
-      .map((candidate) => entryByAbsolutePath.get(candidate))
-      .find(Boolean);
-    const unscannedSourcePath = importedEntry
-      ? undefined
-      : candidates.find(
-          (candidate) =>
-            moduleExtensions.includes(path.extname(candidate)) &&
-            fs.existsSync(candidate) &&
-            fs.statSync(candidate).isFile(),
-        );
-
-    return { importedEntry, unscannedSourcePath };
+  const localDependencyGraph =
+    providedLocalDependencyGraph ??
+    (await createToolcraftLocalDependencyGraph({
+      aliases: localAliases,
+      entries: inventory.entries,
+      // Framework files participate in import resolution, but product-only AST
+      // policy must not be evaluated against every copied framework module.
+      sourceRecordMode: "imports-only",
+      fullEvidenceEntryPaths: inventory.entries
+        .filter((entry) => entry.owner === "product")
+        .map((entry) => entry.repoPath),
+      rootDir: resolvedRootDir,
+    }));
+  const productEntries = localDependencyGraph.entries.filter(
+    (entry) =>
+      /^(?:e2e|src)\//u.test(entry.repoPath) &&
+      entry.owner === "product" &&
+      entry.role === "production" &&
+      (dependencyResolution.toolcraftModuleExtensions.includes(
+        path.extname(entry.repoPath),
+      ) ||
+        /\.css$/u.test(entry.repoPath)),
+  );
+  const productProgramViolations =
+    collectToolcraftProductProgramBoundaryEvidence({
+      aliases: localAliases,
+      entries: localDependencyGraph.entries,
+      inspectedEntries: productEntries.filter((entry) =>
+        /\.[cm]?[jt]sx?$/u.test(entry.repoPath)
+      ),
+      rootDir: resolvedRootDir,
+      moduleImports: localDependencyGraph.moduleImports,
+      sourceRecords: localDependencyGraph.sourceRecords,
+    });
+  const violations = [];
+  const entryByRepoPath = new Map(
+    localDependencyGraph.entries.map((entry) => [entry.repoPath, entry]),
+  );
+  const importsByImporter = new Map();
+  for (const evidence of localDependencyGraph.moduleImports) {
+    const importerEvidence = importsByImporter.get(evidence.importerRepoPath) ?? [];
+    importerEvidence.push(evidence);
+    importsByImporter.set(evidence.importerRepoPath, importerEvidence);
   }
+  const appendPrivateEvidenceImportViolations = (entry) => {
+    for (const moduleImport of importsByImporter.get(entry.repoPath) ?? []) {
+      const violation = createToolcraftPrivateEvidenceImportViolation({
+        importerRepoPath: entry.repoPath,
+        moduleImport,
+      });
+      if (violation) violations.push(violation);
+    }
+  };
 
   for (const entry of productEntries) {
+    const sourceRecord = localDependencyGraph.sourceRecords.get(entry.repoPath);
     if (/\.css$/u.test(entry.repoPath)) {
-      violations.push(
-        ...inspectToolcraftProductCss({
-          ...entry,
-          rawSource: await fsPromises.readFile(entry.absolutePath, "utf8"),
-        }),
-      );
+      violations.push(...sourceRecord.cssEvidence.violations);
       continue;
     }
     if (!/\.[cm]?[jt]sx?$/u.test(entry.repoPath)) continue;
-    const rawSource = await fsPromises.readFile(entry.absolutePath, "utf8");
-    violations.push(
-      ...inspectToolcraftProductSource({
-        ...entry,
-        rawSource,
-        rootDir: resolvedRootDir,
-      }),
-      ...inspectToolcraftReservedEvidenceAccess({
-        ...entry,
-        rawSource,
-      }),
-    );
-    for (const moduleSpecifier of collectToolcraftModuleSpecifiers({
-      ...entry,
-      rawSource,
-    })) {
-      const { importedEntry, unscannedSourcePath } = resolveLocalEntry(
-        entry,
-        moduleSpecifier,
+    const boundaryEvidence = sourceRecord.boundaryEvidence;
+    if (!boundaryEvidence) {
+      throw new Error(
+        `Canonical dependency graph is missing TypeScript boundary evidence for ${entry.repoPath}.`,
       );
-      if (unscannedSourcePath) {
+    }
+    const productSourceViolations =
+      productProgramViolations.get(entry.repoPath) ??
+      boundaryEvidence.productSourceViolations;
+    violations.push(
+      ...productSourceViolations,
+      ...boundaryEvidence.reservedEvidenceViolations,
+      ...boundaryEvidence.playwrightAuthorityViolations,
+    );
+    appendPrivateEvidenceImportViolations(entry);
+    for (const evidence of importsByImporter.get(entry.repoPath) ?? []) {
+      const uiModuleKind = getToolcraftResolvedUiModuleKind({
+        moduleSpecifier: evidence.specifier ?? "",
+        resolvedRepoPath: evidence.resolvedRepoPath,
+      });
+      const uiModuleAlreadyReported = uiModuleKind &&
+        productSourceViolations.some((violation) =>
+          violation.kind === "private-ui-implementation" &&
+          violation.line === evidence.line
+        );
+      if (uiModuleKind && !uiModuleAlreadyReported) {
+        violations.push({
+          column: evidence.column,
+          kind: "private-ui-implementation",
+          line: evidence.line,
+          message:
+            "Product source may import Toolcraft UI only from the exact public @/toolcraft/ui root target.",
+          repoPath: entry.repoPath,
+        });
+      }
+      const capabilityProofViolation =
+        createCapabilityProofBoundaryViolation(entry, evidence);
+      if (capabilityProofViolation) violations.push(capabilityProofViolation);
+      if (evidence.resolution === "outside-inventory") {
         violations.push({
           column: 1,
           kind: "source-boundary-escape",
           line: 1,
-          message: `Product production source must stay under the scanned src boundary. Move ${path.relative(resolvedRootDir, unscannedSourcePath)} under src before importing it.`,
+          message: `Product production source must stay under the scanned src boundary. Move ${evidence.resolvedRepoPath} under src before importing it.`,
           repoPath: entry.repoPath,
         });
       }
+      const importedEntry = entryByRepoPath.get(evidence.resolvedRepoPath);
       if (
         importedEntry?.role === "test" ||
         importedEntry?.role === "test-support" ||
-        /(?:^|\/)[^/]+\.(?:test|spec)(?:\.[cm]?[jt]sx?)?$/u.test(moduleSpecifier)
+        ((evidence.resolution === "outside-inventory" ||
+          evidence.resolution === "unresolved-local") &&
+          /(?:^|\/)[^/]+\.(?:test|spec)(?:\.[cm]?[jt]sx?)?$/u.test(
+            evidence.specifier,
+          ))
       ) {
         violations.push({
           column: 1,
           kind: "production-test-import",
           line: 1,
-          message: `Production source must not import test or test-support module ${moduleSpecifier}. Move reusable product code into an explicit production module.`,
+          message: `Production source must not import test or test-support module ${evidence.specifier}. Move reusable product code into an explicit production module.`,
           repoPath: entry.repoPath,
         });
       }
     }
   }
 
-  for (const entry of inventory.entries) {
+  for (const entry of localDependencyGraph.entries) {
     if (
+      !/^(?:e2e|src)\//u.test(entry.repoPath) ||
       entry.owner !== "product" ||
       (entry.role !== "test" && entry.role !== "test-support") ||
       !/\.[cm]?[jt]sx?$/u.test(entry.repoPath)
     ) {
       continue;
     }
-    const rawSource = await fsPromises.readFile(entry.absolutePath, "utf8");
+    const sourceRecord = localDependencyGraph.sourceRecords.get(entry.repoPath);
+    const boundaryEvidence = sourceRecord.boundaryEvidence;
+    if (!boundaryEvidence) {
+      throw new Error(
+        `Canonical dependency graph is missing TypeScript boundary evidence for ${entry.repoPath}.`,
+      );
+    }
     violations.push(
-      ...inspectToolcraftReservedEvidenceAccess({
-        ...entry,
-        rawSource,
-      }),
-      ...inspectToolcraftModuleLoading({
-        ...entry,
-        rawSource,
-      }),
+      ...boundaryEvidence.reservedEvidenceViolations,
+      ...boundaryEvidence.playwrightAuthorityViolations,
+      ...boundaryEvidence.moduleLoadingViolations,
     );
+    appendPrivateEvidenceImportViolations(entry);
+  }
+
+  for (const entry of localDependencyGraph.entries) {
+    if (
+      entry.owner !== "framework" ||
+      entry.role !== "production" ||
+      !runtimeProductionPathPattern.test(entry.repoPath)
+    ) {
+      continue;
+    }
+
+    for (const moduleImport of importsByImporter.get(entry.repoPath) ?? []) {
+      const capabilityProofViolation =
+        createCapabilityProofBoundaryViolation(entry, moduleImport);
+      if (capabilityProofViolation) violations.push(capabilityProofViolation);
+      const runtimeProductViolation =
+        createRuntimeProductBoundaryViolation(entry, moduleImport);
+      if (runtimeProductViolation) {
+        violations.push(runtimeProductViolation);
+      }
+    }
   }
 
   return {

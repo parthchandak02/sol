@@ -1,9 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-
-export const toolcraftWorkflowPhaseLineBudget = 600;
-export const toolcraftWorkflowDocumentCharacterBudget = 40_000;
-
 export const toolcraftWorkflowPhaseIds = Object.freeze([
   "plan",
   "implementation",
@@ -26,6 +20,15 @@ function defineRoute(route) {
 
 export const toolcraftWorkflowRoutes = Object.freeze(
   [
+    {
+      id: "development-files",
+      task: "Working attachments, diagnostics, file placement and cleanup",
+      phases: {
+        plan: ["core/development-files.md"],
+        implementation: ["core/development-files.md"],
+        verification: ["core/development-files.md"],
+      },
+    },
     {
       id: "app-assembly",
       task: "App assembly, route structure, generated app porting",
@@ -62,7 +65,11 @@ export const toolcraftWorkflowRoutes = Object.freeze(
       task: "Custom controls",
       phases: {
         plan: ["core/control-selection.md", "core/layout.md"],
-        implementation: ["custom-controls.md", "component-rules.md"],
+        implementation: [
+          "custom-controls.md",
+          "custom-control-visuals.md",
+          "component-rules.md",
+        ],
         verification: ["acceptance-testing.md"],
       },
     },
@@ -144,6 +151,104 @@ export const toolcraftWorkflowRouteStartMarker =
 export const toolcraftWorkflowRouteEndMarker =
   "[//]: # (toolcraft-workflow-routes:end)";
 
+export const toolcraftBrowserSurfaceRoutingMarker =
+  "[//]: # (toolcraft-browser-surface-routing: explicit=user-choice; manual=host-embedded-first; fallback=host-embedded-then-external; external=standalone-os-browser; automated=headless-playwright)";
+
+const toolcraftBrowserSurfaceRoutingHeading =
+  "## Manual Browser Surface Routing";
+
+export function renderToolcraftBrowserSurfaceRoutingFragment() {
+  return `${toolcraftBrowserSurfaceRoutingHeading}
+
+${toolcraftBrowserSurfaceRoutingMarker}
+
+Explicit user browser choice wins. Otherwise select from callable browser capabilities, never from product names, environment variables such as \`CODEX_*\`, installed executables, or guessed host identity.
+
+Surface ownership defines the categories. A host-embedded browser renders inside an agent host. A standalone external browser opens or attaches to a separate operating-system browser window; a browser controller or MCP remains external even when callable by the agent.
+
+For manual diagnosis, visual inspection, and user-visible preview, use this order:
+
+1. Use the host-embedded browser surface in the current agent environment, such as the Codex in-app Browser.
+2. If that surface is unavailable or incompatible with the required operation, use another controlled browser surface embedded inside an agent host.
+3. Use a standalone external controlled browser only when all host-embedded surfaces are unavailable or incompatible, and record the concrete fallback reason in the worklog or verification narrative.
+
+If the user explicitly names a browser or browser family, that choice is authoritative. If the named browser is unavailable, report that limitation instead of silently substituting another browser. Opening an uncontrolled system browser is allowed only for an explicit user-facing preview request; it cannot prove that the agent inspected the UI. If no controllable browser exists, report browser verification as unavailable and do not claim live inspection.
+
+Automated Toolcraft browser checks remain on the headless Playwright Test path. The \`test:feature\`, \`test:browser\`, and \`verify:delivery\` scripts keep their existing projects, fixtures, reporters, budgets, and protected evidence behavior. A separately and explicitly requested headed debugging session remains diagnostic and does not alter those gates. Manual browser inspection supplements automated checks, never replaces them, and never mints protected evidence. A headless Playwright Test process is not an unwanted external browser window.`;
+}
+
+export function renderToolcraftBrowserSurfaceRoutingSummary({ workflowPath }) {
+  return `For manual visual inspection, explicit user browser choice wins. Otherwise select from callable browser capabilities and use a browser surface embedded in the current agent host first, then another controlled surface embedded inside an agent host. A browser controller or MCP that opens or attaches to a standalone operating-system browser window is external even when callable by the agent; use it only when host-embedded surfaces are unavailable or incompatible, and record the concrete fallback reason. Never infer browser availability from product names or environment variables. Automated Toolcraft browser checks remain on the headless Playwright Test path and are not replaced by manual inspection. The complete routing and fallback contract lives in \`${workflowPath}\`.`;
+}
+
+function getSingleMarkdownHeadingSection(source, heading) {
+  const normalizedSource = source.replace(/\r\n/gu, "\n");
+  const headingPattern = new RegExp(`^${heading}$`, "gmu");
+  const headingMatches = [...normalizedSource.matchAll(headingPattern)];
+
+  if (headingMatches.length !== 1) return null;
+
+  const sectionStart = headingMatches[0].index;
+  const nextHeadingMatch = /^## /gmu;
+  nextHeadingMatch.lastIndex = sectionStart + heading.length;
+  const nextHeading = nextHeadingMatch.exec(normalizedSource);
+  const sectionEnd = nextHeading?.index;
+
+  return normalizedSource.slice(sectionStart, sectionEnd).trimEnd();
+}
+
+export function getToolcraftBrowserSurfaceRoutingFragmentFailure({
+  label = "docs/toolcraft/workflow.md",
+  source,
+}) {
+  const actualFragment = getSingleMarkdownHeadingSection(
+    source,
+    toolcraftBrowserSurfaceRoutingHeading,
+  );
+
+  if (actualFragment === null) {
+    return `${label} must contain one browser surface routing section`;
+  }
+
+  return actualFragment === renderToolcraftBrowserSurfaceRoutingFragment()
+    ? null
+    : `${label} browser surface routing fragment is out of sync`;
+}
+
+export function getToolcraftBrowserSurfaceRoutingFailures({
+  agents,
+  workflowLabel = "docs/toolcraft/workflow.md",
+  workflowSource,
+}) {
+  const failures = [];
+
+  for (const { label, source, workflowPath } of agents) {
+    if (!source.includes(toolcraftBrowserSurfaceRoutingMarker)) {
+      failures.push(
+        `${label} must include the canonical browser surface routing marker`,
+      );
+    }
+
+    if (
+      !source.includes(
+        renderToolcraftBrowserSurfaceRoutingSummary({ workflowPath }),
+      )
+    ) {
+      failures.push(
+        `${label} must include the canonical browser surface routing summary`,
+      );
+    }
+  }
+
+  const workflowFailure = getToolcraftBrowserSurfaceRoutingFragmentFailure({
+    label: workflowLabel,
+    source: workflowSource,
+  });
+  if (workflowFailure) failures.push(workflowFailure);
+
+  return failures;
+}
+
 function renderLocalDocPath(relativePath) {
   return `\`${relativePath}\``;
 }
@@ -173,11 +278,6 @@ export function renderToolcraftWorkflowRouteFragment(
   ];
 
   return lines.join("\n");
-}
-
-function countSourceLines(source) {
-  const normalizedSource = source.replace(/\r\n/gu, "\n").replace(/\n$/u, "");
-  return normalizedSource.length === 0 ? 0 : normalizedSource.split("\n").length;
 }
 
 export function getToolcraftWorkflowRouteFragmentFailure({
@@ -219,96 +319,4 @@ export function getToolcraftWorkflowRouteFragmentFailure({
   return actualFragment === expectedFragment
     ? null
     : `${label} workflow route fragment is out of sync`;
-}
-
-export async function getToolcraftWorkflowRouteFailures({
-  documentCharacterBudget = toolcraftWorkflowDocumentCharacterBudget,
-  projectRoot,
-  workflowSource,
-  routes = toolcraftWorkflowRoutes,
-  requiredDocPaths = toolcraftWorkflowRequiredDocPaths,
-  phaseLineBudget = toolcraftWorkflowPhaseLineBudget,
-}) {
-  const failures = [];
-  const routeIds = new Set();
-  const routedDocPaths = new Set();
-  const checkedDocumentPaths = new Set();
-  const sourceByPath = new Map();
-
-  const exactFragmentFailure = getToolcraftWorkflowRouteFragmentFailure({
-    routes,
-    source: workflowSource,
-  });
-  if (exactFragmentFailure) failures.push(exactFragmentFailure);
-
-  for (const route of routes) {
-    if (!route.id || routeIds.has(route.id)) {
-      failures.push(`workflow route id must be unique: ${route.id || "<missing>"}`);
-    }
-    routeIds.add(route.id);
-
-    for (const phaseId of toolcraftWorkflowPhaseIds) {
-      const phasePaths = route.phases?.[phaseId];
-
-      if (!Array.isArray(phasePaths) || phasePaths.length === 0) {
-        failures.push(`workflow route ${route.id} must define ${phaseId} docs`);
-        continue;
-      }
-
-      if (new Set(phasePaths).size !== phasePaths.length) {
-        failures.push(
-          `workflow route ${route.id} repeats a document in the ${phaseId} phase`,
-        );
-      }
-
-      let phaseLineCount = 0;
-
-      for (const relativePath of phasePaths) {
-        routedDocPaths.add(relativePath);
-        let source = sourceByPath.get(relativePath);
-
-        if (source === undefined) {
-          try {
-            source = await fs.readFile(
-              path.join(projectRoot, "docs/toolcraft", relativePath),
-              "utf8",
-            );
-            sourceByPath.set(relativePath, source);
-          } catch (error) {
-            if (error?.code !== "ENOENT") throw error;
-            source = null;
-            sourceByPath.set(relativePath, source);
-            failures.push(`workflow route document is missing: ${relativePath}`);
-          }
-        }
-
-        if (source !== null) {
-          phaseLineCount += countSourceLines(source);
-
-          if (!checkedDocumentPaths.has(relativePath)) {
-            checkedDocumentPaths.add(relativePath);
-            if (source.length > documentCharacterBudget) {
-              failures.push(
-                `workflow route document ${relativePath} is ${source.length} characters; budget is ${documentCharacterBudget}`,
-              );
-            }
-          }
-        }
-      }
-
-      if (phaseLineCount > phaseLineBudget) {
-        failures.push(
-          `workflow route ${route.id} ${phaseId} phase is ${phaseLineCount} lines; budget is ${phaseLineBudget}`,
-        );
-      }
-    }
-  }
-
-  for (const relativePath of requiredDocPaths) {
-    if (!routedDocPaths.has(relativePath)) {
-      failures.push(`required workflow document is not routed: ${relativePath}`);
-    }
-  }
-
-  return failures;
 }

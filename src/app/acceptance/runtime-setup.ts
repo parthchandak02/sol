@@ -4,8 +4,11 @@ import { getToolcraftSectionLabel } from "./sections";
 
 const runtimeSetupControlTargets = new Set([
   "runtime.settingsTransfer",
+  "canvas.infinity",
   "canvas.aspectRatio",
   "canvas.renderScale",
+  "canvas.rotationLocked",
+  "canvas.workspaceBackground",
   "canvas.size.width",
   "canvas.size.height",
   "panels.timeline.extended",
@@ -31,36 +34,43 @@ export function getToolcraftRuntimeSetupSectionErrors(
 
   if (sections.length === 0) {
     return [
-      'Runtime Setup must be the first visible controls-panel section titled "Setup". Do not ship an empty controls panel.',
+      'Runtime defaults and Settings must precede product sections. Do not ship an empty controls panel.',
     ];
   }
 
-  const setupSection = sections[0];
+  const defaultsSection = sections[0];
+  const setupSection = sections[1];
   const setupTitle = setupSection?.title?.trim();
   const setupControls = Object.values(setupSection?.controls ?? {});
   const setupTargets = new Set(setupControls.map((control) => control.target));
   const hasSetupTarget = (target: string) => setupTargets.has(target);
 
-  if (setupTitle !== "Setup") {
+  if (setupSection?.id !== "runtime.setup" || setupTitle !== "Settings" || setupSection.visibleWhen) {
     errors.push(
-      'Runtime Setup must be the first visible controls-panel section titled "Setup". Do not move Export Settings, Import Settings, canvas sizing, Resolution scale, or Timeline into app-authored sections.',
+      'Runtime Settings must follow the local defaults block with its standard header and no product-mode gating. Do not move runtime controls into app-authored sections.',
     );
   }
 
   if (
-    !setupControls.some(
+    defaultsSection?.id !== "runtime.defaults" || defaultsSection.visibleWhen ||
+    Object.keys(defaultsSection?.controls ?? {}).length !== 1 ||
+    !Object.values(defaultsSection?.controls ?? {}).some(
       (control) =>
         control.type === "settingsTransfer" &&
         control.target === "runtime.settingsTransfer",
     )
   ) {
     errors.push(
-      'Runtime Setup must include settingsTransfer at target "runtime.settingsTransfer" so Export Settings and Import Settings are always visible.',
+      'The first runtime.defaults section must contain only settingsTransfer at target "runtime.settingsTransfer"; the host hides this block when source authoring is unavailable.',
     );
   }
 
-  if (schema.canvas.enabled && schema.canvas.sizing.mode === "editable-output") {
+  if (
+    schema.canvas.enabled &&
+    schema.canvas.sizing.mode === "editable-output"
+  ) {
     const missingCanvasTargets = [
+      "canvas.infinity",
       "canvas.aspectRatio",
       "canvas.size.width",
       "canvas.size.height",
@@ -68,12 +78,15 @@ export function getToolcraftRuntimeSetupSectionErrors(
 
     if (missingCanvasTargets.length > 0) {
       errors.push(
-        `Runtime Setup for editable-output canvas must include Aspect ratio, Canvas width, and Canvas height. Missing targets: ${missingCanvasTargets.join(", ")}.`,
+        `Runtime Setup for editable-output canvas must include Infinity canvas, Aspect ratio, Canvas width, and Canvas height. Missing targets: ${missingCanvasTargets.join(", ")}.`,
       );
     }
   }
 
-  if (schema.canvas.renderScale.enabled && !hasSetupTarget("canvas.renderScale")) {
+  if (
+    schema.canvas.renderScale.enabled &&
+    !hasSetupTarget("canvas.renderScale")
+  ) {
     errors.push(
       'Runtime Setup must include Resolution scale at target "canvas.renderScale" whenever canvas.renderScale is enabled.',
     );
@@ -93,22 +106,72 @@ export function getToolcraftRuntimeSetupSectionErrors(
     )
   ) {
     errors.push(
-      'Runtime Setup must not include the Timeline switch unless panels.timeline is enabled.',
+      "Runtime Setup must not include the Timeline switch unless panels.timeline is enabled.",
     );
   }
 
+  const hasOrientationGizmo = sections.some((section) =>
+    Object.values(section.controls).some(
+      (control) => control.type === "orientationGizmo",
+    ),
+  );
+  if (hasSetupTarget("canvas.rotationLocked") !== hasOrientationGizmo) {
+    errors.push(
+      "Runtime Setup must include Lock rotation exactly when the app declares an orientationGizmo.",
+    );
+  }
+  const finalRowTargets = [
+    ...(schema.panels.timeline?.enabled ? ["panels.timeline.extended"] : []),
+    ...(hasOrientationGizmo ? ["canvas.rotationLocked"] : []),
+  ];
+  if (finalRowTargets.length > 0) {
+    const actualFinalTargets = setupControls
+      .slice(-finalRowTargets.length)
+      .map((control) => control.target);
+    if (actualFinalTargets.join("|") !== finalRowTargets.join("|")) {
+      errors.push(
+        "Runtime Setup must place Timeline and Lock rotation, when present, in that order in its final row.",
+      );
+    }
+    if (
+      finalRowTargets.length === 2 &&
+      !setupSection?.layoutGroups?.some(
+        (group) =>
+          group.layout === "inline" &&
+          group.columns === 2 &&
+          group.controls.length === 2 &&
+          group.controls.every(
+            (id, index) =>
+              setupSection.controls[id]?.target === finalRowTargets[index],
+          ),
+      )
+    ) {
+      errors.push(
+        "Runtime Setup must render Timeline left of Lock rotation in one two-column inline layoutGroup.",
+      );
+    }
+  }
+
   for (const [sectionIndex, section] of sections.entries()) {
-    const isRuntimeSetupSection = sectionIndex === 0 && section.title?.trim() === "Setup";
+    const isRuntimeSetupSection =
+      sectionIndex === 1 && section.id === "runtime.setup" && section.title?.trim() === "Settings";
+    const isRuntimeDefaultsControl = sectionIndex === 0 && section.id === "runtime.defaults";
 
     for (const [controlId, control] of Object.entries(section.controls)) {
-      if (!isRuntimeSetupControlTarget(control.target) || isRuntimeSetupSection) {
+      if (
+        !isRuntimeSetupControlTarget(control.target) ||
+        (control.target === "runtime.settingsTransfer" ? isRuntimeDefaultsControl : isRuntimeSetupSection)
+      ) {
         continue;
       }
 
-      const sectionLabel = getToolcraftSectionLabel(section.title, sectionIndex);
+      const sectionLabel = getToolcraftSectionLabel(
+        section.title,
+        sectionIndex,
+      );
 
       errors.push(
-        `${sectionLabel} / ${controlId} uses runtime Setup target "${control.target}". Runtime Setup owns Export Settings, Import Settings, Aspect ratio, Canvas width, Canvas height, Resolution scale, and Timeline; do not declare these controls in app-authored sections.`,
+        `${sectionLabel} / ${controlId} uses runtime Setup target "${control.target}". Runtime Setup owns Save State as Default, Infinity canvas, Aspect ratio, Canvas width, Canvas height, Resolution scale, Timeline, and Lock rotation; do not declare these controls in app-authored sections.`,
       );
     }
   }

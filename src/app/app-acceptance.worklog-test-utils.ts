@@ -2,6 +2,21 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  getDecisionTrailVerificationErrors,
+  getPerformanceIntentErrors,
+} from "./app-acceptance.worklog-performance-intent-test-utils";
+import {
+  getToolcraftMarkdownSectionBodies,
+  parseToolcraftDecisionTrail,
+} from "../../scripts/toolcraft-worklog-decision-trail.mjs";
+import {
+  TOOLCRAFT_DELIVERY_VERIFICATION_COMMAND,
+} from "../../scripts/toolcraft-performance-authority-policy.mjs";
+import type {
+  ToolcraftMotionReferenceTimingMode,
+} from "./acceptance/types";
+
 const appDir = dirname(fileURLToPath(import.meta.url));
 const projectDir = join(appDir, "../..");
 
@@ -9,6 +24,8 @@ export const agentWorklogPath = join(projectDir, "docs/toolcraft/agent-worklog.m
 
 const requiredAgentWorklogDecisionSections = [
   "Renderer",
+  "View Interaction",
+  "Interaction Ownership",
   "Timeline",
   "Layers",
   "Controls",
@@ -24,6 +41,25 @@ const requiredAgentWorklogSections = [
   "Verification",
   "Risks",
 ] as const;
+const agentWorklogDecisionTrailFieldOrder = [
+  "Request",
+  "Task type",
+  "User-visible result",
+  "Source/reference checked",
+  "Reference inputs",
+  "Docs/contracts read",
+  "Contract rules applied",
+  "View interaction intent",
+  "Interaction ownership",
+  "Decision",
+  "Alternatives rejected",
+  "State/output mapping",
+  "Performance intent",
+  "Performance request evidence",
+  "Performance paths",
+  "Verification",
+  "Risks",
+] as const;
 const requiredAgentWorklogDecisionTrailFields = [
   "Request",
   "Task type",
@@ -32,16 +68,17 @@ const requiredAgentWorklogDecisionTrailFields = [
   "Reference inputs",
   "Docs/contracts read",
   "Contract rules applied",
+  "View interaction intent",
+  "Interaction ownership",
   "Decision",
   "Alternatives rejected",
   "State/output mapping",
-  "Files changed",
+  "Performance intent",
   "Verification",
-  "Skipped checks",
   "Risks",
 ] as const;
 type WorklogDecisionSection = (typeof requiredAgentWorklogDecisionSections)[number];
-type WorklogDecisionTrailField = (typeof requiredAgentWorklogDecisionTrailFields)[number];
+type WorklogDecisionTrailField = (typeof agentWorklogDecisionTrailFieldOrder)[number];
 type WorklogDecisionEvidence = {
   decision: string;
   evidence: string;
@@ -58,17 +95,21 @@ export type AgentWorklogFixtureOptions = {
   trailHeading?: string;
   verificationLines?: readonly string[];
 };
+export type WorklogMotionReference = Readonly<{
+  contactSheetPath: string;
+  referenceId: string;
+  requiresRealTimeReview: boolean;
+  requiresSlowedReview: boolean;
+  sourceSha256: string;
+  studyId: string;
+  timingMode: ToolcraftMotionReferenceTimingMode;
+}>;
 const worklogVideoReferencePattern =
   /\b(?:source\/reference checked|source reviewed|reference inputs):[^\n]*(?:reference\s+(?:video|gif)|screen\s*recording|contact[-\s]*sheet|storyboard|frame[-\s]*by[-\s]*frame|extracted[-\s]*frames?|cleanshot|ffprobe|[^\s]+\.(?:mp4|mov|webm|gif))\b/i;
-const worklogVideoReferenceStudyPattern =
-  /\b(video reference study|storyboard|frame[-\s]*by[-\s]*frame|transition analysis|frame[-\s]*to[-\s]*frame|contact[-\s]*sheet|extracted frames?)\b/i;
-const incompleteRequiredCheckPattern =
-  /\b(?:fail(?:ed|s|ing)?|not complete|not completed|incomplete|pending|blocked|planned|todo|to do|to run|will run|not run|not started|not yet|queued)\b/i;
-const requiredCheckNamePattern =
-  /\b(?:(?:pnpm\s+)?(?:verify:final|verify:perf|test:browser:perf|test:browser|verify:quick|test|build)|browser performance checkpoint|agent-browser|playwright-fallback)\b/i;
-const browserPerformanceCheckpointPattern =
-  /\b(?:browser performance checkpoint|performance checkpoint|verify:perf|test:browser:perf|playwright-fallback)\b/i;
-
+const motionReferenceRecordPattern =
+  /^\s*[-*]\s+Motion reference study:\s*(?<fields>\S.*)$/iu;
+const motionReferenceFieldPattern =
+  /\b(?<name>referenceId|studyId|sourceSha256|timingMode|contactSheetPath|review)=(?<value>[^;]+?)(?=;\s*|$)/giu;
 export function readToolcraftDoc(relativePath: string): string {
   return readFileSync(join(projectDir, "docs/toolcraft", relativePath), "utf8");
 }
@@ -90,14 +131,25 @@ const defaultDecisionEvidence: Record<WorklogDecisionSection, WorklogDecisionEvi
     reason: "The product edits one output.",
   },
   Performance: {
-    decision: "Record browser performance coverage.",
-    evidence: "pnpm verify:perf automated Playwright checkpoint.",
-    reason: "First working product delivery must prove performance.",
+    decision: "Use lifecycle-aware protected delivery verification.",
+    evidence: `${TOOLCRAFT_DELIVERY_VERIFICATION_COMMAND} protected receipt.`,
+    reason:
+      "The runner chooses complete initial functional proof, exact ownership-derived later functional proof, or one request-backed targeted performance iteration; full certification remains operator-only.",
   },
   Renderer: {
     decision: "Use SVG renderer.",
     evidence: "src/app/product-renderer.tsx.",
     reason: "The product output is vector-native.",
+  },
+  "View Interaction": {
+    decision: "Use non-spatial view interaction.",
+    evidence: "appProductReadiness.viewInteraction.",
+    reason: "The product has no visible three-dimensional scene or model.",
+  },
+  "Interaction Ownership": {
+    decision: "Keep each user operation on one evidence-backed primary surface.",
+    evidence: "appProductReadiness.interactionOwnership.",
+    reason: "Canvas and panel interactions remain complementary instead of mirrored.",
   },
   Timeline: {
     decision: "Do not enable timeline.",
@@ -106,21 +158,25 @@ const defaultDecisionEvidence: Record<WorklogDecisionSection, WorklogDecisionEvi
   },
 };
 
-const defaultDecisionTrailFields: Record<WorklogDecisionTrailField, string> = {
+const defaultDecisionTrailFields: Partial<
+  Record<WorklogDecisionTrailField, string>
+> = {
   "Alternatives rejected": "Canvas output because vector output must stay crisp.",
   "Contract rules applied": "runtime-shell-required and output-export-required.",
   Decision: "Use SVG renderer with Toolcraft controls.",
   "Docs/contracts read": "workflow.md, assembly-workflow.md, and performance.md.",
-  "Files changed": "src/app/app-schema.ts, src/app/product-renderer.tsx, src/app/app-performance.ts.",
+  "Performance intent": "ordinary-product-work",
   "Reference inputs": "None.",
   Request: "Build a still vector poster app.",
   Risks: "None; browser and performance gates cover the touched surfaces.",
-  "Skipped checks": "None.",
   "Source/reference checked": "User prompt.",
   "State/output mapping": "Schema values feed product-renderer.tsx and export uses runtime state.",
   "Task type": "Schema, renderer, export, acceptance, and performance.",
   "User-visible result": "The canvas renders the poster and exports PNG.",
-  Verification: "pnpm verify:quick; pnpm verify:perf.",
+  Verification: `${TOOLCRAFT_DELIVERY_VERIFICATION_COMMAND}.`,
+  "View interaction intent": "non-spatial; the product has no visible three-dimensional scene or model.",
+  "Interaction ownership":
+    "No cross-surface product operations; panel controls own their distinct property edits.",
 };
 
 function renderDecisionSection(
@@ -151,10 +207,9 @@ export function createAgentWorklogFixture({
   omitDecisionTrailFields = [],
   risksLines = ["- None: no known risk."],
   trailFields = {},
-  trailHeading = "Iteration 1 - Product build",
+  trailHeading = "Delivery 1 - Product build",
   verificationLines = [
-    "- Run: pnpm verify:quick",
-    "- Run: pnpm verify:perf",
+    "Protected receipts own commands, selectors, measurements, and pass/fail evidence.",
   ],
 }: AgentWorklogFixtureOptions = {}): string {
   const omittedFields = new Set<WorklogDecisionTrailField>(omitDecisionTrailFields);
@@ -162,9 +217,12 @@ export function createAgentWorklogFixture({
     ...defaultDecisionTrailFields,
     ...trailFields,
   };
-  const decisionTrailLines = requiredAgentWorklogDecisionTrailFields
+  const decisionTrailLines = agentWorklogDecisionTrailFieldOrder
     .filter((field) => !omittedFields.has(field))
-    .map((field) => `- ${field}: ${resolvedTrailFields[field]}`);
+    .flatMap((field) => {
+      const value = resolvedTrailFields[field];
+      return value === undefined ? [] : [`- ${field}: ${value}`];
+    });
 
   return [
     "# Implementation Worklog",
@@ -200,151 +258,104 @@ export function createAgentWorklogFixture({
   ].join("\n");
 }
 
-function getMarkdownHeadingLevel(line: string): number | null {
-  const match = /^(#{1,6})\s+\S/.exec(line.trim());
-
-  return match ? match[1].length : null;
-}
-
 function getMarkdownSectionBody(source: string, heading: string): string {
-  const lines = source.split(/\r?\n/);
-  const headingPattern = new RegExp(`^(#{1,6})\\s+${escapeRegExp(heading)}\\s*$`, "i");
-  const startIndex = lines.findIndex((line) => headingPattern.test(line.trim()));
-
-  if (startIndex < 0) {
-    return "";
-  }
-
-  const startLevel = getMarkdownHeadingLevel(lines[startIndex]);
-  const bodyLines: string[] = [];
-
-  for (let index = startIndex + 1; index < lines.length; index += 1) {
-    const nextLevel = getMarkdownHeadingLevel(lines[index]);
-
-    if (startLevel !== null && nextLevel !== null && nextLevel <= startLevel) {
-      break;
-    }
-
-    bodyLines.push(lines[index]);
-  }
-
-  return bodyLines.join("\n").trim();
-}
-
-function getAgentWorklogDecisionTrailIterations(
-  decisionTrailBody: string,
-): Array<{ body: string; heading: string }> {
-  const iterations: Array<{ body: string; heading: string }> = [];
-  let currentHeading = "";
-  let currentBody: string[] = [];
-
-  for (const line of decisionTrailBody.split(/\r?\n/)) {
-    const headingMatch = /^###\s+(.+?)\s*$/.exec(line.trim());
-
-    if (headingMatch) {
-      if (currentHeading) {
-        iterations.push({ body: currentBody.join("\n").trim(), heading: currentHeading });
-      }
-
-      currentHeading = headingMatch[1];
-      currentBody = [];
-      continue;
-    }
-
-    if (currentHeading) {
-      currentBody.push(line);
-    }
-  }
-
-  if (currentHeading) {
-    iterations.push({ body: currentBody.join("\n").trim(), heading: currentHeading });
-  }
-
-  return iterations;
+  return getToolcraftMarkdownSectionBodies(source, heading)[0] ?? "";
 }
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function getWorklogLines(source: string): string[] {
-  return source
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+type MotionReferenceRecord = Readonly<{
+  contactSheetPath?: string;
+  referenceId?: string;
+  review?: string;
+  sourceSha256?: string;
+  studyId?: string;
+  timingMode?: string;
+}>;
+
+function getAuthoritativeWorklogSource(source: string): string {
+  return requiredAgentWorklogSections
+    .map((section) => getMarkdownSectionBody(source, section))
+    .join("\n");
 }
 
-export function isAllowedPerfSkipLine(line: string): boolean {
+function getMotionReferenceRecords(
+  authoritativeSource: string,
+): readonly MotionReferenceRecord[] {
+  return authoritativeSource.split(/\r?\n/u).flatMap((line) => {
+    const recordMatch = motionReferenceRecordPattern.exec(line);
+    if (!recordMatch?.groups?.fields) return [];
+
+    const fields: Record<string, string> = {};
+    for (const match of recordMatch.groups.fields.matchAll(
+      motionReferenceFieldPattern,
+    )) {
+      if (!match.groups) continue;
+      fields[match.groups.name] = match.groups.value
+        .trim()
+        .replace(/[.]$/u, "");
+    }
+    return [fields];
+  });
+}
+
+function recordMatchesMotionReference(
+  record: MotionReferenceRecord,
+  motionReference: WorklogMotionReference,
+): boolean {
+  if (
+    record.contactSheetPath !== motionReference.contactSheetPath ||
+    record.referenceId !== motionReference.referenceId ||
+    record.sourceSha256 !== motionReference.sourceSha256 ||
+    record.studyId !== motionReference.studyId ||
+    record.timingMode !== motionReference.timingMode
+  ) {
+    return false;
+  }
+
+  const reviewModes = new Set(
+    (record.review ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  if (motionReference.timingMode === "ordinal") {
+    return (
+      reviewModes.has("ordered-frames") &&
+      !reviewModes.has("real-time") &&
+      !reviewModes.has("slowed")
+    );
+  }
+  if (
+    (motionReference.timingMode === "seconds" ||
+      motionReference.requiresRealTimeReview) &&
+    !reviewModes.has("real-time")
+  ) {
+    return false;
+  }
   return (
-    browserPerformanceCheckpointPattern.test(line) &&
-    /\bnot required\b/i.test(line) &&
-    /\b(?:post-first|after first|not first|feature loop|non-performance)\b/i.test(line)
+    !motionReference.requiresSlowedReview || reviewModes.has("slowed")
   );
 }
 
-function isIncompleteOrSkippedLine(line: string): boolean {
-  return (
-    /\b(?:skip|skipped|not required)\b/i.test(line) ||
-    incompleteRequiredCheckPattern.test(line)
-  );
+function describeRequiredReview(motionReference: WorklogMotionReference): string {
+  if (motionReference.timingMode === "ordinal") return "ordered-frames";
+  return motionReference.requiresSlowedReview
+    ? "real-time,slowed"
+    : "real-time";
 }
 
-function isVerificationEvidenceLine(line: string): boolean {
-  return /\b(?:Run|Verification|Browser):/i.test(line);
-}
-
-export function isPassedPlaywrightFallbackPerfRunLine(line: string): boolean {
-  return (
-    isVerificationEvidenceLine(line) &&
-    (/\bpnpm\s+verify:perf\b/i.test(line) ||
-      (/\bplaywright-fallback\b/i.test(line) &&
-        /\b(?:performance|perf|checkpoint)\b/i.test(line))) &&
-    !isIncompleteOrSkippedLine(line)
-  );
-}
-
-function getAgentWorklogVerificationGateErrors(source: string): string[] {
-  const lines = getWorklogLines(source);
+export function getAgentWorklogValidationErrors(
+  source: string,
+  options: Readonly<{
+    motionReferences?: readonly WorklogMotionReference[];
+  }> = {},
+): string[] {
   const errors: string[] = [];
-  const hasPassedPlaywrightFallbackPerfRun = lines.some(
-    isPassedPlaywrightFallbackPerfRunLine,
-  );
-  const hasPassedPerfRun = hasPassedPlaywrightFallbackPerfRun;
-  const hasAllowedPerfSkip = lines.some(isAllowedPerfSkipLine);
-  const failedRequiredCheckLine = lines.find(
-    (line) => requiredCheckNamePattern.test(line) && incompleteRequiredCheckPattern.test(line),
-  );
-  const skippedRequiredCheckLine = lines.find(
-    (line) =>
-      /^-?\s*(?:Skipped checks|Skip):/i.test(line) &&
-      requiredCheckNamePattern.test(line) &&
-      !/\bnone\b/i.test(line) &&
-      !isAllowedPerfSkipLine(line),
-  );
-
-  if (failedRequiredCheckLine) {
-    errors.push(
-      "agent-worklog.md required checks must be passed before final delivery; do not report failed, incomplete, pending, or blocked verification.",
-    );
-  }
-
-  if (skippedRequiredCheckLine) {
-    errors.push(
-      "agent-worklog.md must not list required checks as skipped unless they are explicitly not required for a post-first-working non-performance edit.",
-    );
-  }
-
-  if (!hasPassedPerfRun && !hasAllowedPerfSkip) {
-    errors.push(
-      "agent-worklog.md Verification must record `pnpm verify:perf` as the automated Playwright performance checkpoint for first working product delivery.",
-    );
-  }
-
-  return errors;
-}
-
-export function getAgentWorklogValidationErrors(source: string): string[] {
-  const errors: string[] = [];
+  const motionReferences = options.motionReferences ?? [];
+  const authoritativeSource = getAuthoritativeWorklogSource(source);
 
   for (const section of requiredAgentWorklogSections) {
     if (!getMarkdownSectionBody(source, section)) {
@@ -378,15 +389,21 @@ export function getAgentWorklogValidationErrors(source: string): string[] {
     }
   }
 
-  const decisionTrailBody = getMarkdownSectionBody(source, "Decision Trail");
-  const decisionTrailIterations = getAgentWorklogDecisionTrailIterations(decisionTrailBody);
-
-  if (decisionTrailIterations.length === 0) {
-    errors.push("agent-worklog.md Decision Trail must include at least one iteration heading.");
+  const decisionTrail = parseToolcraftDecisionTrail(source);
+  errors.push(...decisionTrail.errors);
+  const isFocusedEntry = (body: string) => /^-[ \t]*Entry type:[ \t]*focused[ \t]*$/imu.test(body);
+  if (decisionTrail.iterations.length > 0 && decisionTrail.iterations.every((iteration) => isFocusedEntry(iteration.body))) {
+    errors.push("agent-worklog.md must retain its initial delivery decision entry before adding focused follow-ups.");
   }
 
-  for (const iteration of decisionTrailIterations) {
-    for (const field of requiredAgentWorklogDecisionTrailFields) {
+  for (const iteration of decisionTrail.iterations) {
+    const focused = isFocusedEntry(iteration.body);
+    const requiredFields: readonly string[] = focused
+      ? ["Change ID", "Request", "Changed owner", "User-visible result", "Verification", "Risks"]
+      : requiredAgentWorklogDecisionTrailFields;
+    for (const field of requiredFields) {
+      if (field === "Performance intent") continue;
+
       const fieldPattern = new RegExp(`\\b${escapeRegExp(field)}:\\s*\\S`, "i");
 
       if (!fieldPattern.test(iteration.body)) {
@@ -395,10 +412,12 @@ export function getAgentWorklogValidationErrors(source: string): string[] {
         );
       }
     }
+
+    errors.push(...getDecisionTrailVerificationErrors(iteration));
+    errors.push(...getPerformanceIntentErrors(iteration));
   }
 
   const evidenceBody = getMarkdownSectionBody(source, "Evidence");
-  const verificationBody = getMarkdownSectionBody(source, "Verification");
   const risksBody = getMarkdownSectionBody(source, "Risks");
 
   if (!/\b(Source reviewed|Contract applied|Evidence):\s*\S/i.test(evidenceBody)) {
@@ -406,23 +425,31 @@ export function getAgentWorklogValidationErrors(source: string): string[] {
   }
 
   if (
-    worklogVideoReferencePattern.test(source) &&
-    !worklogVideoReferenceStudyPattern.test(source)
+    worklogVideoReferencePattern.test(authoritativeSource) &&
+    motionReferences.length === 0
   ) {
     errors.push(
-      "agent-worklog.md cites a video reference, screen recording, GIF, extracted frames, or contact sheet; record a Video Reference Study with storyboard frames and frame-to-frame transition analysis.",
+      "agent-worklog.md cites a video reference, screen recording, GIF, extracted frames, or contact sheet, but appTransferMode.referenceInputs registers no motion reference input.",
     );
   }
 
-  if (!/\bpnpm\s+(verify|test|build|typecheck)|browser|Playwright|perf/i.test(verificationBody)) {
-    errors.push("agent-worklog.md Verification must list concrete test/build/browser/performance checks.");
+  const motionReferenceRecords = getMotionReferenceRecords(authoritativeSource);
+  for (const motionReference of motionReferences) {
+    if (
+      motionReferenceRecords.some((record) =>
+        recordMatchesMotionReference(record, motionReference),
+      )
+    ) {
+      continue;
+    }
+    errors.push(
+      `agent-worklog.md motion reference study "${motionReference.studyId}" for reference "${motionReference.referenceId}" must include one exact "Motion reference study:" record with referenceId=${motionReference.referenceId}; studyId=${motionReference.studyId}; sourceSha256=${motionReference.sourceSha256}; timingMode=${motionReference.timingMode}; contactSheetPath=${motionReference.contactSheetPath}; review=${describeRequiredReview(motionReference)}.`,
+    );
   }
-
-  errors.push(...getAgentWorklogVerificationGateErrors(source));
 
   if (!/\b(Risk|None):\s*\S/i.test(risksBody)) {
     errors.push('agent-worklog.md Risks must include either "Risk:" entries or "None:" with a reason.');
   }
 
-  return errors;
+  return [...new Set(errors)];
 }

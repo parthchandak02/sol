@@ -15,6 +15,30 @@ export async function getToolcraftFieldByLabel(page: Page, label: string): Promi
   return field;
 }
 
+export async function expectToolcraftDiscreteSliderMarkers(
+  page: Page,
+  target: string,
+  requirementId = target,
+): Promise<void> {
+  const field = await getToolcraftControlFieldByTarget(page, target);
+  const slider = field.locator('[data-slot="slider"][data-variant="discrete"]');
+
+  await expect(
+    slider,
+    `Toolcraft control "${target}" should render as a discrete slider.`,
+  ).toBeVisible();
+  expect(
+    await slider.locator('[data-slot="slider-marker"]').count(),
+    `Toolcraft discrete slider "${target}" should render at least one interior marker.`,
+  ).toBeGreaterThan(0);
+
+  await attachToolcraftBrowserRuntimeEvidence({
+    evidenceType: "discrete-slider-layout",
+    requirementId,
+    target,
+  });
+}
+
 export async function expectToolcraftSegmentedControlCellsPreservePadding(
   page: Page,
   label: string,

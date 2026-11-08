@@ -1,4 +1,3 @@
-import { getToolcraftCanvasHandleAcceptanceErrors } from "./canvas-handle-acceptance";
 import { getControlAcceptanceCoverageErrors } from "./control-acceptance-coverage";
 import {
   getAcceptanceEntryTargetErrors,
@@ -13,6 +12,7 @@ export function getToolcraftControlAcceptanceErrors({
   acceptance,
   controls,
   layersEnabled,
+  productReadiness,
   schema,
   timelineMode,
 }: ToolcraftControlAcceptanceContext): string[] {
@@ -43,11 +43,13 @@ export function getToolcraftControlAcceptanceErrors({
 
     errors.push(
       ...getControlAcceptanceCoverageErrors({
+        acceptance,
         control,
         controlId,
         entry,
         label,
         layersEnabled,
+        productReadiness,
         schema,
         sectionTitle,
         timelineMode,
@@ -63,8 +65,8 @@ export function getToolcraftControlAcceptanceErrors({
     );
   }
 
-  errors.push(...getAcceptanceEntryTargetErrors({ acceptance, controlTargets }));
-  errors.push(...getToolcraftCanvasHandleAcceptanceErrors({ acceptance, controlTargets }));
-
+  errors.push(
+    ...getAcceptanceEntryTargetErrors({ acceptance, controlTargets }),
+  );
   return errors;
 }

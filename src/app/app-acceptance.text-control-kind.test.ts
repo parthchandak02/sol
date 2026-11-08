@@ -1,40 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { defineToolcraft } from "@/toolcraft/runtime";
 
-import { validateContractAcceptance } from "./app-acceptance.contract-fixtures";
+import {
+  defineContractSchemaFixture,
+  validateContractAcceptance,
+} from "./app-acceptance.contract-fixtures";
 import { makeControlAcceptance } from "./app-acceptance.test-utils";
 
 describe("starter acceptance text control kind rules", () => {
   it("rejects CodeTextarea for short single-line text content", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                buttonText: {
-                  defaultValue: "Glass",
-                  label: "Text",
-                  target: "button.text",
-                  textValueKind: "single-line",
-                  type: "code",
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-1",
+                controls: {
+                  buttonText: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: "Glass",
+                    label: "Text",
+                    target: "button.text",
+                    textValueKind: "single-line",
+                    type: "code",
+                  },
                 },
+                title: "Button",
               },
-              title: "Button",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     expect(
       validateContractAcceptance({
         schema: schema,
-        acceptance: [
-          makeControlAcceptance("button.text", "code"),
-        ],
+        acceptance: [makeControlAcceptance("button.text", "code")],
       }),
     ).toEqual(
       expect.arrayContaining([
@@ -46,37 +53,42 @@ describe("starter acceptance text control kind rules", () => {
   });
 
   it("allows CodeTextarea when a short default documents long multiline intent", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                prompt: {
-                  defaultValue: "Describe the scene",
-                  description:
-                    "Long multiline prompt content for generated output.",
-                  label: "Prompt",
-                  target: "generation.prompt",
-                  textValueKind: "multiline",
-                  type: "code",
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-2",
+                controls: {
+                  prompt: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: "Describe the scene",
+                    description:
+                      "Long multiline prompt content for generated output.",
+                    label: "Prompt",
+                    target: "generation.prompt",
+                    textValueKind: "multiline",
+                    type: "code",
+                  },
                 },
+                title: "Generation",
               },
-              title: "Generation",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     expect(
       validateContractAcceptance({
         schema: schema,
-        acceptance: [
-          makeControlAcceptance("generation.prompt", "code"),
-        ],
+        acceptance: [makeControlAcceptance("generation.prompt", "code")],
       }),
     ).not.toEqual(
       expect.arrayContaining([

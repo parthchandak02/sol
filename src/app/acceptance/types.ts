@@ -1,9 +1,82 @@
 import type {
   ToolcraftBuiltInControlType as RuntimeToolcraftBuiltInControlType,
   ToolcraftControlOrderRole,
-  ToolcraftControlSchema,
+  ResolvedToolcraftControlSchema,
+  ToolcraftPersistableStateSlice,
 } from "@/toolcraft/runtime";
 import { TOOLCRAFT_BUILT_IN_CONTROL_TYPES } from "@/toolcraft/runtime";
+import type { ToolcraftExportRequestEvidence } from "./artifact-export-request-evidence";
+import type {
+  ToolcraftCanvasSizingCoverage,
+  ToolcraftInfinityCanvasCoverage,
+  ToolcraftInfinityOverflowCoverage,
+  ToolcraftRenderScaleCoverage,
+} from "./canvas-coverage";
+import type { ToolcraftModelImportCoverage } from "./model-import-coverage";
+import type { ToolcraftInteractionOwnershipEntry } from "./interaction-ownership-intent";
+import type { ToolcraftMotionReferenceCoverage } from "./reference-study-types";
+import type {
+  ToolcraftReferenceCoverage,
+  ToolcraftReferenceTimelineCoverage,
+  ToolcraftTimelineLoopProof,
+  ToolcraftTimelinePlaybackCoverage,
+} from "./transfer-mode-types";
+import type { ToolcraftViewInteractionIntent } from "./view-interaction-intent";
+import type { ToolcraftBrowserProofBudget } from "./browser-proof-policy.mjs";
+
+export { TOOLCRAFT_REQUIRED_MODEL_IMPORT_COVERAGE } from "./model-import-coverage";
+export type { ToolcraftExportRequestEvidence } from "./artifact-export-request-evidence";
+export type {
+  ToolcraftCanvasSizingCoverage,
+  ToolcraftInfinityCanvasCoverage,
+  ToolcraftInfinityOverflowCoverage,
+  ToolcraftRenderScaleCoverage,
+  ToolcraftRenderScaleState,
+} from "./canvas-coverage";
+export type { ToolcraftModelImportCoverage } from "./model-import-coverage";
+export type {
+  ToolcraftInteractionCapability,
+  ToolcraftInteractionEvidenceSource,
+  ToolcraftInteractionOwnershipEntry,
+  ToolcraftInteractionSurface,
+} from "./interaction-ownership-intent";
+export type {
+  ToolcraftViewInteractionAuthority,
+  ToolcraftViewInteractionIntent,
+} from "./view-interaction-intent";
+export type {
+  ToolcraftMotionReferenceBehavior,
+  ToolcraftMotionReferenceCoverage,
+  ToolcraftMotionReferenceEvent,
+  ToolcraftMotionReferenceEvidence,
+  ToolcraftMotionReferenceEvidenceEvent,
+  ToolcraftMotionReferenceInput,
+  ToolcraftMotionReferenceOrdinalFrame,
+  ToolcraftMotionReferencePhase,
+  ToolcraftMotionReferenceSourceKind,
+  ToolcraftMotionReferenceStudy,
+  ToolcraftMotionReferenceTimedFrame,
+  ToolcraftMotionReferenceTimingClaim,
+  ToolcraftMotionReferenceTimingMode,
+  ToolcraftReferenceFeatureInventoryItem,
+  ToolcraftReferenceFeatureStatus,
+  ToolcraftReferenceInput,
+  ToolcraftReferenceStudyEvidence,
+  ToolcraftReferenceStudyStatus,
+} from "./reference-study-types";
+export type {
+  ToolcraftAnimationIntent,
+  ToolcraftAutonomousAnimationCoverage,
+  ToolcraftReferenceCoverage,
+  ToolcraftReferenceTimelineContract,
+  ToolcraftReferenceTimelineCoverage,
+  ToolcraftReferenceTimelineMode,
+  ToolcraftTimelineLoopDurationIntent,
+  ToolcraftTimelineLoopDurationSource,
+  ToolcraftTimelineLoopProof,
+  ToolcraftTimelinePlaybackCoverage,
+  ToolcraftTransferMode,
+} from "./transfer-mode-types";
 
 export type ToolcraftAcceptanceEvidence =
   | "command-side-effect"
@@ -15,51 +88,35 @@ export type ToolcraftAcceptanceEvidence =
   | "timeline-output"
   | "viewport-side-effect";
 
-export type ToolcraftReferenceCoverage =
-  | "canvas-sizing"
-  | "control-mapping"
-  | "export-at-time"
-  | "export-copy"
-  | "media-lifecycle"
-  | "pause-resume"
-  | "renderer-loop"
-  | "renderer-state"
-  | "restart"
-  | "spawn-update-cadence"
-  | "time-progress";
-
-export type ToolcraftReferenceTimelineCoverage =
-  | "all-range"
-  | "duration"
-  | "export-at-time"
-  | "export-range"
-  | "jump-to-trim-start"
-  | "keyframes"
-  | "loop"
-  | "playback"
-  | "range-playback"
-  | "restart"
-  | "scrub"
-  | "state-jump"
-  | "time-progress"
-  | "trim-range";
-
-export type ToolcraftTimelinePlaybackCoverage =
-  | "duration"
-  | "loop"
-  | "pause-resume"
-  | "rendered-frame"
-  | "scrub";
-
-export type ToolcraftCanvasSizingCoverage = "fixed-output-size" | "intrinsic-media-size";
+export type ToolcraftExportArtifactCoverage =
+  | "all-required-image-export-behavior"
+  | "all-required-svg-export-behavior"
+  | "all-required-video-export-behavior";
 
 export type ToolcraftPersistenceCoverage = "reload";
 
 export type ToolcraftSettingsTransferCoverage = "opt-out";
 
-export type ToolcraftConditionalVisibilityCoverage = "hidden" | "visible";
+export type ToolcraftBrowserProof =
+  | false
+  | Readonly<{
+      budget: ToolcraftBrowserProofBudget;
+      file: `e2e/${string}.spec.ts`;
+      testName: string;
+    }>;
+
+export type ToolcraftOrientationGizmoCoverage =
+  | "axis-drag"
+  | "axis-snap"
+  | "canvas-miss-pan"
+  | "export-clean"
+  | "model-drag"
+  | "shared-pose-output"
+  | "undo-reset";
 
 export type ToolcraftBackgroundOutputCoverage =
+  | "finite-media-stacking"
+  | "infinity-viewport-color-and-dependency"
   | "image-transparent-when-excluded"
   | "preview-hidden-when-excluded"
   | "video-background-preserved";
@@ -76,123 +133,6 @@ export type ToolcraftMediaLifecycleCoverage =
   | "transform-output"
   | "upload";
 
-export type ToolcraftAutonomousAnimationCoverage =
-  | "no-duration-control"
-  | "no-export-at-time"
-  | "no-loop-control"
-  | "no-play-pause"
-  | "no-scrub"
-  | "no-user-facing-transport";
-
-export type ToolcraftTimelineLoopDurationSource =
-  | "product-derived"
-  | "reference"
-  | "user-request";
-
-export type ToolcraftTimelineLoopDurationIntent = {
-  evidence: string;
-  seconds: number;
-  source: ToolcraftTimelineLoopDurationSource;
-};
-
-export type ToolcraftTimelineLoopProof = {
-  direction: "forward-only";
-  durationChange: "reproved-after-edit";
-  reversePlayback: "forbidden";
-  seam: "first-last-match";
-};
-
-export type ToolcraftAnimationIntent =
-  | {
-      mode: "none";
-    }
-  | {
-      behaviorCoverage: readonly ToolcraftAutonomousAnimationCoverage[];
-      mode: "autonomous";
-      reason: string;
-    }
-  | {
-      loopDuration: ToolcraftTimelineLoopDurationIntent;
-      mode: "timeline-keyframes";
-    }
-  | {
-      loopDuration: ToolcraftTimelineLoopDurationIntent;
-      mode: "timeline-playback";
-    };
-
-export type ToolcraftReferenceTimelineMode =
-  | "custom-reference-timeline"
-  | "none"
-  | "toolcraft-keyframes"
-  | "toolcraft-playback";
-
-export type ToolcraftReferenceTimelineContract = {
-  behaviorCoverage: readonly ToolcraftReferenceTimelineCoverage[];
-  loopDuration?: ToolcraftTimelineLoopDurationIntent;
-  mode: ToolcraftReferenceTimelineMode;
-};
-
-export type ToolcraftReferenceStudyStatus =
-  | "ran-original"
-  | "restored-local"
-  | "source-inspection-only";
-
-export type ToolcraftReferenceStudyEvidence = {
-  behaviorEvidence: string;
-  referenceLocation: string;
-  reproductionSteps: string;
-  sourceEvidence: string;
-  sourceOnlyReason?: string;
-  status: ToolcraftReferenceStudyStatus;
-};
-
-export type ToolcraftVideoReferenceStoryboardFrame = {
-  behaviorObservation: string;
-  frameId: string;
-  frameSource: string;
-  timeSeconds: number;
-  visualObservation: string;
-};
-
-export type ToolcraftVideoReferenceTransition = {
-  behaviorDelta: string;
-  fromFrameId: string;
-  id: string;
-  toFrameId: string;
-};
-
-export type ToolcraftVideoReferenceAcceptanceMapping = {
-  acceptanceId: string;
-  behavior: string;
-  frameIds: readonly string[];
-};
-
-export type ToolcraftVideoReferenceStudyEvidence = {
-  acceptanceMapping: readonly ToolcraftVideoReferenceAcceptanceMapping[];
-  behaviorDecomposition: string;
-  extractionEvidence: string;
-  referenceLocation: string;
-  storyboard: readonly ToolcraftVideoReferenceStoryboardFrame[];
-  transitionAnalysis: readonly ToolcraftVideoReferenceTransition[];
-};
-
-export type ToolcraftReferenceFeatureStatus =
-  | "intentionally-changed"
-  | "ported"
-  | "toolcraft-native";
-
-export type ToolcraftReferenceFeatureInventoryItem = {
-  acceptanceId: string;
-  behaviorEvidence: string;
-  featureName: string;
-  id: string;
-  referenceBehavior: string;
-  sourceEvidence: string;
-  status: ToolcraftReferenceFeatureStatus;
-  toolcraftMapping: string;
-  userApprovedChangeReason?: string;
-};
-
 export type ToolcraftLayerCoverage =
   | "grouping"
   | "media-lifecycle"
@@ -201,10 +141,15 @@ export type ToolcraftLayerCoverage =
   | "selection"
   | "visibility";
 
+export type ToolcraftSelectionScopeCoverage = "two-entity-isolation";
+
 export type ToolcraftControlPartCoverage =
   | "anchorGrid.position"
   | "channelMixer.activeChannel"
   | "channelMixer.values"
+  | "collectionActions.add"
+  | "collectionActions.items"
+  | "collectionActions.remove"
   | "curves.activeChannel"
   | "curves.points"
   | "colorOpacity.hex"
@@ -228,6 +173,7 @@ export type ToolcraftControlPartCoverage =
   | "rangeInput.start"
   | "rangeSlider.lower"
   | "rangeSlider.upper"
+  | "sourceCollection.items"
   | "vector.x"
   | "vector.y";
 
@@ -260,23 +206,24 @@ export type ToolcraftCustomControlCapability =
   | "reorder"
   | "selection";
 
-export type ToolcraftTransferMode =
-  | {
-      animationIntent?: ToolcraftAnimationIntent;
-      mode: "new-toolcraft-app";
-      videoReferenceStudy?: ToolcraftVideoReferenceStudyEvidence;
-    }
-  | {
-      animationIntent?: ToolcraftAnimationIntent;
-      behaviorCoverage: readonly ToolcraftReferenceCoverage[];
-      mode: "reference-runtime-clone";
-      referenceFeatureInventory?: readonly ToolcraftReferenceFeatureInventoryItem[];
-      referenceName: string;
-      referenceStudy?: ToolcraftReferenceStudyEvidence;
-      referenceTimeline: ToolcraftReferenceTimelineContract;
-      sourceOfTruth: "reference-runtime";
-      videoReferenceStudy?: ToolcraftVideoReferenceStudyEvidence;
-    };
+export type ToolcraftImageExportIntent =
+  | Readonly<{ mode: "toolcraft-default" }>
+  | Readonly<{ evidence: ToolcraftExportRequestEvidence; mode: "user-requested" }>
+  | Readonly<{ evidence: ToolcraftExportRequestEvidence; mode: "user-removed" }>;
+
+export type ToolcraftVideoExportIntent =
+  | Readonly<{ mode: "not-requested" }>
+  | Readonly<{ evidence: ToolcraftExportRequestEvidence; mode: "user-requested" }>;
+
+export type ToolcraftSvgExportIntent =
+  | Readonly<{ mode: "not-requested" }>
+  | Readonly<{ evidence: ToolcraftExportRequestEvidence; mode: "user-requested" }>;
+
+export type ToolcraftArtifactExportIntent = Readonly<{
+  image: ToolcraftImageExportIntent;
+  svg: ToolcraftSvgExportIntent;
+  video: ToolcraftVideoExportIntent;
+}>;
 
 export type ToolcraftProductReadiness =
   | {
@@ -284,38 +231,55 @@ export type ToolcraftProductReadiness =
       reason: string;
     }
   | {
+      exportIntent: ToolcraftArtifactExportIntent;
       mode: "product";
+      interactionOwnership: readonly ToolcraftInteractionOwnershipEntry[];
       productName: string;
       productSummary: string;
       requestedBehavior: string;
+      viewInteraction: ToolcraftViewInteractionIntent;
     };
 
 export type ToolcraftComponentAcceptance = {
   actionCoverage?: readonly string[];
   automated: boolean;
   automatedTestName: string;
-  browser: boolean;
-  browserTestName: string;
+  browser: ToolcraftBrowserProof;
   componentType: string;
   evidence: ToolcraftAcceptanceEvidence;
+  exportArtifactCoverage?:
+    | ToolcraftExportArtifactCoverage
+    | readonly ToolcraftExportArtifactCoverage[];
   expectedObservable: string;
   fixture: string;
   id: string;
+  interactionId?: string;
   canvasHandle?: {
-    exportCleanTestName: string;
     outputObservable: string;
     testId: string;
     writesTarget: string;
   };
   kind: "canvas-handle" | "control" | "runtime";
   canvasSizingCoverage?: ToolcraftCanvasSizingCoverage;
+  infinityCanvasCoverage?: ToolcraftInfinityCanvasCoverage;
+  infinityOverflowCoverage?: ToolcraftInfinityOverflowCoverage;
   layerCoverage?: ToolcraftLayerCoverage;
   mediaLifecycleCoverage?: readonly ToolcraftMediaLifecycleCoverage[];
+  modelImportCoverage?:
+    | "all-required-model-import-behavior"
+    | readonly ToolcraftModelImportCoverage[];
+  motionReferenceCoverage?: readonly ToolcraftMotionReferenceCoverage[];
   optionCoverage?: "each-visible-item" | readonly string[];
+  orientationGizmoCoverage?:
+    | "all-required-orientation-gizmo-behavior"
+    | readonly ToolcraftOrientationGizmoCoverage[];
   persistenceCoverage?: ToolcraftPersistenceCoverage;
+  persistenceSlices?: readonly ToolcraftPersistableStateSlice[];
   referenceCoverage?: ToolcraftReferenceCoverage;
   referenceTimelineCoverage?: ToolcraftReferenceTimelineCoverage;
+  renderScaleCoverage?: ToolcraftRenderScaleCoverage;
   settingsTransferCoverage?: ToolcraftSettingsTransferCoverage;
+  selectionScopeCoverage?: ToolcraftSelectionScopeCoverage;
   target?: string;
   timelineCoverage?: "keyframes" | "playback";
   timelinePlaybackCoverage?:
@@ -332,14 +296,12 @@ export type ToolcraftComponentAcceptance = {
   backgroundOutputCoverage?:
     | "all-required-background-output"
     | readonly ToolcraftBackgroundOutputCoverage[];
+  collectionItemKeyframeCoverage?: readonly string[];
   userAction: string;
-  visibilityCoverage?:
-    | "all-conditional-visibility"
-    | readonly ToolcraftConditionalVisibilityCoverage[];
 };
 
 export type ToolcraftVisibleControl = {
-  control: ToolcraftControlSchema;
+  control: ResolvedToolcraftControlSchema;
   controlId: string;
   sectionTitle?: string;
 };
@@ -353,9 +315,28 @@ export type ToolcraftControlOrderItem = {
   type: string;
 };
 
+export type { ToolcraftProductModeIntent } from "./product-mode-intent";
+
+export type ToolcraftFiniteSelectorInventoryEntry =
+  | Readonly<{
+      affectedTargets: readonly string[];
+      productMode?: import("./product-mode-intent").ToolcraftProductModeIntent;
+      reason: string;
+      role: "branch";
+      target: string;
+    }>
+  | Readonly<{
+      reason: string;
+      role: "parameter";
+      target: string;
+    }>;
+
 export type ToolcraftControlSectionInventoryEntry = {
-  entity?: string;
+  entity: string;
+  entityId: string;
+  finiteSelectors: readonly ToolcraftFiniteSelectorInventoryEntry[];
   groupingReason: string;
+  id: string;
   splitReason?: string;
   targets: readonly string[];
   title: string;

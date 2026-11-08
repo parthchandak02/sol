@@ -16,7 +16,11 @@ import type {
   ToolcraftCommand,
   ToolcraftTimelineKeyframeGroup,
 } from "../../../state/types";
-import type { ControlEntry } from "../layout/controls-panel-layout";
+import { getToolcraftSelectedKeyframeTime } from "../../../state/selected-keyframe-time";
+import {
+  getControlName,
+  type ControlEntry,
+} from "../layout/controls-panel-layout";
 
 function cn(...classNames: Array<string | false | null | undefined>): string {
   return classNames.filter(Boolean).join(" ");
@@ -24,6 +28,28 @@ function cn(...classNames: Array<string | false | null | undefined>): string {
 
 function canCreateControlKeyframe(control: ToolcraftControlSchema): boolean {
   return getToolcraftControlKeyframeCapability(control).capable;
+}
+
+export function getControlsPanelSectionHeaderKeyframeEntry(
+  entries: readonly ControlEntry[],
+  title: React.ReactNode,
+): ControlEntry | null {
+  if (typeof title !== "string") {
+    return null;
+  }
+
+  return (
+    entries.find(([id, control]) => {
+      if (control.type === "channelMixer" || control.type === "curves") {
+        return false;
+      }
+
+      return (
+        getControlName(id, control.label) === title &&
+        canCreateControlKeyframe(control)
+      );
+    }) ?? null
+  );
 }
 
 function ControlKeyframeButton({
@@ -120,15 +146,11 @@ export function createControlsPanelKeyframeActions({
   }) => React.ReactNode;
 } {
   function getSelectedControlKeyframeTime(controlId: string): number | undefined {
-    if (!selectedKeyframeId) {
-      return undefined;
-    }
-
-    const selectedKeyframe = keyframeGroups
-      .find((group) => group.controlId === controlId)
-      ?.keyframes.find((keyframe) => keyframe.id === selectedKeyframeId);
-
-    return selectedKeyframe?.timeSeconds;
+    return getToolcraftSelectedKeyframeTime(
+      controlId,
+      keyframeGroups,
+      selectedKeyframeId,
+    );
   }
 
   function maybeUpsertControlKeyframe(
@@ -223,25 +245,7 @@ export function createControlsPanelKeyframeActions({
     entries: readonly ControlEntry[],
     title: React.ReactNode,
   ): ControlEntry | null {
-    if (typeof title !== "string") {
-      return null;
-    }
-
-    const matchingTitleEntry = entries.find(([id, control]) => {
-      if (control.type === "channelMixer" || control.type === "curves") {
-        return false;
-      }
-
-      const name = getControlName(id, control.label);
-
-      return name === title && canCreateControlKeyframe(control);
-    });
-
-    if (matchingTitleEntry) {
-      return matchingTitleEntry;
-    }
-
-    return null;
+    return getControlsPanelSectionHeaderKeyframeEntry(entries, title);
   }
 
   function getSectionHeaderKeyframeAction(entry: ControlEntry): React.ReactNode {

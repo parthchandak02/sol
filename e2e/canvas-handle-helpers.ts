@@ -15,7 +15,7 @@ export async function dragCanvasHandle(
   page: Page,
   testId: string,
   delta: { x: number; y: number },
-  options: { requirementId?: string; scenarioId?: string; target?: string } = {},
+  options: { pathId?: string; requirementId?: string; target?: string } = {},
 ): Promise<void> {
   const handle = getCanvasHandle(page, testId);
   await expect(handle, `Canvas handle "${testId}" should be visible`).toBeVisible();
@@ -32,10 +32,10 @@ export async function dragCanvasHandle(
   await page.mouse.down();
   await page.mouse.move(startX + delta.x, startY + delta.y, { steps: 8 });
   await page.mouse.up();
-  if (options.scenarioId) {
+  if (options.pathId) {
     await attachToolcraftBrowserRuntimeEvidence({
       evidenceType: "performance-control-drag",
-      requirementId: options.scenarioId,
+      requirementId: options.pathId,
       target: options.target,
     });
   }

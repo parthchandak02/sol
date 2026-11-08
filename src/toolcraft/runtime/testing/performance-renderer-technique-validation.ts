@@ -1,11 +1,11 @@
 import type {
-  ToolcraftPerformanceConfig,
   ToolcraftRendererLayer,
   ToolcraftRendererLayerContent,
   ToolcraftRendererStrategy,
   ToolcraftRendererTechnique,
 } from "./performance-types";
-import { hasPositiveBudgetField } from "./performance-budget-validation";
+import type { ToolcraftEnvelopeValidationContext } from "./performance-envelope-validation-context";
+import { getToolcraftRendererGpuErrors } from "./performance-renderer-gpu-validation";
 
 const rasterRendererStrategies = new Set<ToolcraftRendererStrategy>([
   "canvas-2d",
@@ -16,13 +16,6 @@ const rasterRendererStrategies = new Set<ToolcraftRendererStrategy>([
 const semanticForegroundContent = new Set<ToolcraftRendererLayerContent>([
   "geometry",
   "text",
-]);
-
-const detailHeavyRendererContent = new Set<ToolcraftRendererLayerContent>([
-  "bitmap-media",
-  "dense-pattern",
-  "noise",
-  "shader",
 ]);
 
 const vectorLayerRendererStrategies = new Set<ToolcraftRendererStrategy>(["dom", "svg"]);
@@ -54,107 +47,6 @@ function getLayerContentFamily(content: ToolcraftRendererLayerContent): string {
 
 function hasSemanticForegroundContent(layer: ToolcraftRendererLayer): boolean {
   return layer.content.some((content) => semanticForegroundContent.has(content));
-}
-
-export function hasDetailHeavyRendererLayer(
-  technique: ToolcraftRendererTechnique | undefined,
-): boolean {
-  return (technique?.layers ?? []).some(
-    (layer) =>
-      layer.primitiveCount === "high" ||
-      layer.content.some((content) => detailHeavyRendererContent.has(content)),
-  );
-}
-
-export function hasHighCountCanvas2DRendererLayer(
-  technique: ToolcraftRendererTechnique | undefined,
-): boolean {
-  return (technique?.layers ?? []).some(
-    (layer) =>
-      layer.renderer === "canvas-2d" &&
-      layer.primitiveCount === "high" &&
-      (hasSemanticForegroundContent(layer) ||
-        layer.content.some((content) => detailHeavyRendererContent.has(content))),
-  );
-}
-
-function hasDetailHeavyCanvas2DRendererLayer(
-  technique: ToolcraftRendererTechnique | undefined,
-): boolean {
-  return (technique?.layers ?? []).some(
-    (layer) =>
-      layer.renderer === "canvas-2d" &&
-      layer.content.some((content) => detailHeavyRendererContent.has(content)),
-  );
-}
-
-function getRendererMeasuredAlternativeEvidenceErrors(
-  technique: ToolcraftRendererTechnique,
-): string[] {
-  return (technique.measuredAlternativeEvidence ?? []).flatMap((evidence, index) => {
-    const label = `rendererTechnique.measuredAlternativeEvidence[${index}]`;
-    const errors: string[] = [];
-
-    if (evidence.alternativeStrategy !== "webgl" && evidence.alternativeStrategy !== "webgpu") {
-      errors.push(`${label}.alternativeStrategy must be "webgl" or "webgpu".`);
-    }
-
-    if (!evidence.scenarioId.trim()) {
-      errors.push(`${label}.scenarioId must name the measured performance scenario.`);
-    }
-
-    if (!evidence.fixture.trim()) {
-      errors.push(`${label}.fixture must name the exact stress fixture that was measured.`);
-    }
-
-    if (!evidence.measuredResult.trim()) {
-      errors.push(`${label}.measuredResult must summarize measured frame, interaction, render, or long-task results.`);
-    }
-
-    if (!evidence.decision.trim()) {
-      errors.push(`${label}.decision must explain why the selected renderer remains appropriate.`);
-    }
-
-    return errors;
-  });
-}
-
-export function hasMeasuredGpuAlternativeEvidence(
-  technique: ToolcraftRendererTechnique,
-): boolean {
-  return (technique.measuredAlternativeEvidence ?? []).some(
-    (evidence) =>
-      (evidence.alternativeStrategy === "webgl" ||
-        evidence.alternativeStrategy === "webgpu") &&
-      evidence.scenarioId.trim().length > 0 &&
-      evidence.fixture.trim().length > 0 &&
-      evidence.measuredResult.trim().length > 0 &&
-      evidence.decision.trim().length > 0,
-  );
-}
-
-export function hasStressPreviewOrAnimationScenario(config: ToolcraftPerformanceConfig): boolean {
-  return config.scenarios.some(
-    (scenario) =>
-      scenario.stress === true &&
-      (scenario.interaction === "preview-render" ||
-        scenario.interaction === "animation-frame"),
-  );
-}
-
-export function hasLongTaskBudgetScenario(config: ToolcraftPerformanceConfig): boolean {
-  return config.scenarios.some((scenario) =>
-    hasPositiveBudgetField(scenario.budget, "maxLongTaskMs"),
-  );
-}
-
-export function hasZoomSensitiveRenderer(config: ToolcraftPerformanceConfig): boolean {
-  return (
-    config.rendererWorkload === "text-output" ||
-    config.rendererWorkload === "vector-output" ||
-    config.rendererWorkload === "pixel-output" ||
-    hasDetailHeavyRendererLayer(config.rendererTechnique)
-  );
 }
 
 function getRendererLayerErrors(technique: ToolcraftRendererTechnique): string[] {
@@ -223,8 +115,11 @@ function getRendererLayerErrors(technique: ToolcraftRendererTechnique): string[]
   return errors;
 }
 
-export function getRendererTechniqueErrors(config: ToolcraftPerformanceConfig): string[] {
+export function getRendererTechniqueErrors(
+  context: ToolcraftEnvelopeValidationContext,
+): string[] {
   const errors: string[] = [];
+  const { config } = context;
   const technique = config.rendererTechnique;
 
   if (config.usesCustomRenderer && !technique) {
@@ -239,12 +134,6 @@ export function getRendererTechniqueErrors(config: ToolcraftPerformanceConfig): 
 
   if (!technique) {
     return errors;
-  }
-
-  if (technique.rendererWorkload !== config.rendererWorkload) {
-    errors.push(
-      `rendererTechnique.rendererWorkload "${technique.rendererWorkload}" must match rendererWorkload "${config.rendererWorkload}".`,
-    );
   }
 
   if (technique.rendererStrategy !== config.rendererStrategy) {
@@ -267,35 +156,6 @@ export function getRendererTechniqueErrors(config: ToolcraftPerformanceConfig): 
     errors.push("Custom renderer technique must list performance risks.");
   }
 
-  errors.push(...getRendererMeasuredAlternativeEvidenceErrors(technique));
-
-  if (
-    technique.productRepresentation === "text" &&
-    technique.rendererWorkload !== "text-output" &&
-    !technique.intentionalRasterizationReason?.trim()
-  ) {
-    errors.push(
-      'productRepresentation "text" requires rendererWorkload "text-output" unless intentionalRasterizationReason is provided.',
-    );
-  }
-
-  if (
-    technique.productRepresentation === "vector" &&
-    technique.rendererWorkload !== "vector-output" &&
-    !technique.intentionalRasterizationReason?.trim()
-  ) {
-    errors.push(
-      'productRepresentation "vector" requires rendererWorkload "vector-output" unless intentionalRasterizationReason is provided.',
-    );
-  }
-
-  if (
-    technique.productRepresentation === "pixel" &&
-    technique.rendererWorkload !== "pixel-output"
-  ) {
-    errors.push('productRepresentation "pixel" requires rendererWorkload "pixel-output".');
-  }
-
   if (
     technique.previewRenderer !== technique.exportRenderer &&
     technique.exportRenderer !== "none" &&
@@ -313,17 +173,7 @@ export function getRendererTechniqueErrors(config: ToolcraftPerformanceConfig): 
   }
 
   errors.push(...getRendererLayerErrors(technique));
-
-  if (
-    config.usesCustomRenderer &&
-    technique.rendererStrategy === "canvas-2d" &&
-    hasDetailHeavyCanvas2DRendererLayer(technique) &&
-    !hasMeasuredGpuAlternativeEvidence(technique)
-  ) {
-    errors.push(
-      "Detail-heavy Canvas 2D renderers must include rendererTechnique.measuredAlternativeEvidence for WebGL/WebGPU stress comparison before keeping the pixel work on CPU.",
-    );
-  }
+  errors.push(...getToolcraftRendererGpuErrors(context));
 
   return errors;
 }

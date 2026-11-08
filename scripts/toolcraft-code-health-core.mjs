@@ -1,8 +1,23 @@
-import fs from "node:fs/promises";
+import path from "node:path";
 
-import { getToolcraftProductDependencyCycleViolations } from "./toolcraft-product-dependency-graph.mjs";
-import { isToolcraftDependencyCompilerAvailable } from "./toolcraft-product-dependency-resolution.mjs";
+import {
+  createToolcraftLocalDependencyGraph,
+  getToolcraftProductionCycleViolations,
+} from "./toolcraft-local-dependency-graph.mjs";
+import {
+  defaultTestFilePatterns,
+  getLineBudgetViolations,
+  getLineCount,
+  isTestFile,
+  matchesToolcraftPathPatterns,
+} from "./toolcraft-code-health-line-budget.mjs";
+import { getToolcraftReachablePaths } from "./toolcraft-graph-reachability.mjs";
+import {
+  printToolcraftProductBoundaryResult,
+  toolcraftProductBoundaryPassed,
+} from "./toolcraft-product-boundary.mjs";
 import { collectToolcraftSourceInventory } from "./toolcraft-source-inventory.mjs";
+import { isToolcraftTypeScriptCompilerAvailable } from "./toolcraft-typescript-source-evidence.mjs";
 
 export const defaultSourceExtensions = new Set([
   ".cjs",
@@ -16,10 +31,12 @@ export const defaultSourceExtensions = new Set([
   ".tsx",
 ]);
 
-export const defaultTestFilePatterns = [
-  /\.test\.[cm]?[jt]sx?$/u,
-  /\.spec\.[cm]?[jt]sx?$/u,
-];
+export {
+  defaultTestFilePatterns,
+  getLineBudgetViolations,
+  getLineCount,
+  isTestFile,
+};
 
 export const defaultForbiddenPatterns = [
   {
@@ -65,78 +82,6 @@ const policySelfDefinitionPaths = new Set([
   "starter/scripts/toolcraft-code-health-core.mjs",
 ]);
 
-export function getLineCount(source) {
-  if (source.length === 0) {
-    return 0;
-  }
-
-  return source.replace(/(?:\r\n|\r|\n)$/u, "").split(/\r\n|\r|\n/u).length;
-}
-
-export function isTestFile(
-  repoPath,
-  testFilePatterns = defaultTestFilePatterns,
-) {
-  return testFilePatterns.some((pattern) => pattern.test(repoPath));
-}
-
-export function getLineBudgetViolations(
-  repoPath,
-  lineCount,
-  {
-    globalLineBudget,
-    scopedLineBudgets = [],
-    testFilePatterns = defaultTestFilePatterns,
-    testLineBudget,
-  },
-) {
-  const violations = [];
-
-  if (globalLineBudget && lineCount > globalLineBudget.maxLines) {
-    violations.push({
-      lineCount,
-      maxLines: globalLineBudget.maxLines,
-      reason: globalLineBudget.reason,
-      repoPath,
-      scope: "global",
-    });
-  }
-
-  if (
-    testLineBudget &&
-    isTestFile(repoPath, testFilePatterns) &&
-    lineCount > testLineBudget.maxLines
-  ) {
-    violations.push({
-      lineCount,
-      maxLines: testLineBudget.maxLines,
-      reason: testLineBudget.reason,
-      repoPath,
-      scope: "test-file",
-    });
-  }
-
-  const scopedBudget = scopedLineBudgets
-    .filter((budget) => repoPath.startsWith(budget.prefix))
-    .sort(
-      (left, right) =>
-        right.prefix.length - left.prefix.length ||
-        left.maxLines - right.maxLines,
-    )[0];
-
-  if (scopedBudget && lineCount > scopedBudget.maxLines) {
-    violations.push({
-      lineCount,
-      maxLines: scopedBudget.maxLines,
-      reason: scopedBudget.reason,
-      repoPath,
-      scope: scopedBudget.prefix,
-    });
-  }
-
-  return violations;
-}
-
 export function getForbiddenPatternViolations(
   repoPath,
   source,
@@ -176,8 +121,11 @@ export async function evaluateCodeHealth({
   frameworkPathPrefixes = [],
   globalLineBudget,
   ignoredFilePatterns = [],
+  inventory: providedInventory,
+  localDependencyGraph: providedLocalDependencyGraph,
   rootDir,
   protectedFilePaths = [],
+  productionEntryPaths = [],
   scopedLineBudgets = [],
   sourceExtensions = defaultSourceExtensions,
   sourceRoots,
@@ -185,37 +133,60 @@ export async function evaluateCodeHealth({
   testForbiddenPatterns = defaultTestForbiddenPatterns,
   testLineBudget,
 }) {
-  const inventory = await collectToolcraftSourceInventory({
-    frameworkPathPrefixes,
-    ignoredFilePatterns,
-    protectedFilePaths,
-    rootDir,
-    sourceExtensions,
-    sourceRoots,
-    testFilePatterns,
-  });
-  const filesystemViolations = inventory.filesystemViolations;
-  const sourceFiles = inventory.entries;
-  const dependencyCycleAnalysisDeferred =
-    !isToolcraftDependencyCompilerAvailable();
-  const dependencyCycleViolations =
-    getToolcraftProductDependencyCycleViolations({
-      aliases: dependencyCycleAliases,
-      entries: sourceFiles,
-      ignoredFilePatterns: dependencyCycleIgnoredFilePatterns,
-      includedFilePatterns: dependencyCycleIncludedFilePatterns,
+  const inventory =
+    providedInventory ??
+    (await collectToolcraftSourceInventory({
+      frameworkPathPrefixes,
+      protectedFilePaths,
       rootDir,
+      sourceExtensions,
+      sourceRoots,
+      testFilePatterns,
+    }));
+  const filesystemViolations = inventory.filesystemViolations;
+  const sourceFiles = inventory.entries.filter(
+    ({ owner, repoPath }) =>
+      owner === "product" &&
+      sourceExtensions.has(path.extname(repoPath)) &&
+      !matchesToolcraftPathPatterns(repoPath, ignoredFilePatterns),
+  );
+  const localDependencyGraph =
+    providedLocalDependencyGraph ??
+    (await createToolcraftLocalDependencyGraph({
+      aliases: dependencyCycleAliases,
+      entries: inventory.entries,
+      rootDir,
+      sourceRecordMode: "imports-only",
+    }));
+  const dependencyCycleAnalysisDeferred =
+    !isToolcraftTypeScriptCompilerAvailable();
+  const productionPaths = new Set(
+    getToolcraftReachablePaths(localDependencyGraph, productionEntryPaths),
+  );
+  const dependencyCycleViolations =
+    getToolcraftProductionCycleViolations(localDependencyGraph, {
+      ignoredFilePatterns: [
+        ...ignoredFilePatterns,
+        ...dependencyCycleIgnoredFilePatterns,
+      ],
+      includedFilePatterns: dependencyCycleIncludedFilePatterns,
     });
   const lineBudgetViolations = [];
   const forbiddenPatternViolations = [];
 
-  for (const { absolutePath, repoPath } of sourceFiles) {
-    const source = await fs.readFile(absolutePath, "utf8");
+  for (const { repoPath } of sourceFiles) {
+    const source = localDependencyGraph.sourceRecords.get(repoPath)?.rawSource;
+    if (source === undefined) {
+      throw new Error(
+        `Canonical dependency graph is missing source evidence for ${repoPath}.`,
+      );
+    }
     const lineCount = getLineCount(source);
 
     lineBudgetViolations.push(
       ...getLineBudgetViolations(repoPath, lineCount, {
         globalLineBudget,
+        productionFile: productionPaths.has(repoPath),
         scopedLineBudgets,
         testFilePatterns,
         testLineBudget,
@@ -226,7 +197,8 @@ export async function evaluateCodeHealth({
       ...getForbiddenPatternViolations(
         repoPath,
         source,
-        isTestFile(repoPath, testFilePatterns)
+        !productionPaths.has(repoPath) &&
+          isTestFile(repoPath, testFilePatterns)
           ? testForbiddenPatterns
           : forbiddenPatterns,
       ),
@@ -285,6 +257,14 @@ export function printCodeHealthResult(result, logger = console) {
       logger.error(`  ${violation.reason}`);
     }
   }
+
+  if (
+    result.productBoundary &&
+    !toolcraftProductBoundaryPassed(result.productBoundary)
+  ) {
+    logger.error("\nProduct boundary violations:");
+    printToolcraftProductBoundaryResult(result.productBoundary, logger);
+  }
 }
 
 export function codeHealthPassed(result) {
@@ -292,6 +272,8 @@ export function codeHealthPassed(result) {
     result.filesystemViolations.length === 0 &&
     result.dependencyCycleViolations.length === 0 &&
     result.lineBudgetViolations.length === 0 &&
-    result.forbiddenPatternViolations.length === 0
+    result.forbiddenPatternViolations.length === 0 &&
+    (!result.productBoundary ||
+      toolcraftProductBoundaryPassed(result.productBoundary))
   );
 }

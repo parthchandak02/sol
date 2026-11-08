@@ -20,11 +20,14 @@ type SliderRuntimeOptions<Value extends number | readonly number[]> = {
   max: number;
   min: number;
   onBlurCapture?: SliderFocusEventHandler;
+  onLostPointerCapture?: SliderPointerEventHandler;
+  onPointerDraggingChange?: (isDragging: boolean) => void;
   onPointerCancelCapture?: SliderPointerEventHandler;
   onPointerDownCapture?: SliderPointerEventHandler;
   onPointerUpCapture?: SliderPointerEventHandler;
   onValueChange?: SliderProps<Value>["onValueChange"];
   onValueCommitted?: SliderProps<Value>["onValueCommitted"];
+  onValueReset?: SliderProps<Value>["onValueReset"];
   resetValue?: Value;
   snapValues?: readonly number[];
   step: number;
@@ -40,11 +43,14 @@ export function useSliderRuntime<Value extends number | readonly number[]>({
   max,
   min,
   onBlurCapture,
+  onLostPointerCapture,
+  onPointerDraggingChange,
   onPointerCancelCapture,
   onPointerDownCapture,
   onPointerUpCapture,
   onValueChange,
   onValueCommitted,
+  onValueReset,
   resetValue,
   snapValues,
   step,
@@ -66,6 +72,8 @@ export function useSliderRuntime<Value extends number | readonly number[]>({
   const pointerDrag = useSliderPointerDragging({
     disabled,
     onBlurCapture,
+    onLostPointerCapture,
+    onPointerDraggingChange,
     onPointerCancelCapture,
     onPointerDownCapture,
     onPointerUpCapture,
@@ -90,6 +98,7 @@ export function useSliderRuntime<Value extends number | readonly number[]>({
     handleValueChange,
     handleValueCommitted: sliderValue.handleValueCommitted,
     isDiscrete: sliderValue.isDiscrete,
+    onValueReset,
     max,
     min,
     resetValue,

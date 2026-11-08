@@ -4,8 +4,9 @@ import type {
 } from "@/toolcraft/runtime";
 
 import { appAcceptance } from "./app-acceptance";
+import { compositionHasProductCanvasSurface } from "./app-acceptance.composition-test-utils";
+import { appComposition } from "./app-composition";
 import { appSchema } from "./app-schema";
-import { sourceDefinesProductCanvasContent } from "./app-acceptance.source-test-utils";
 
 type ResolvedControlsSection =
   NonNullable<ResolvedToolcraftAppSchema["panels"]["controls"]>["sections"][number];
@@ -15,12 +16,12 @@ type ResolvedControl = ResolvedControlsSection["controls"][string];
 export function schemaHasProductSurface(): boolean {
   return (
     (appSchema.panels.controls?.sections ?? []).some(
-      (section) => section.title !== "Setup" && Object.keys(section.controls).length > 0,
+      (section) => section.id !== "runtime.setup" && section.id !== "runtime.defaults" && Object.keys(section.controls).length > 0,
     ) ||
     appSchema.panels.layers === true ||
     appSchema.panels.timeline?.enabled === true ||
-    sourceDefinesProductCanvasContent() ||
-    appAcceptance.length > 0
+    compositionHasProductCanvasSurface(appComposition) ||
+    appAcceptance.some((entry) => entry.kind !== "runtime")
   );
 }
 

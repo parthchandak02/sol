@@ -129,6 +129,7 @@ export function FontPickerPopoverContent({
 
               return (
                 <button
+                  data-slot="font-picker-category-filter"
                   className={cn(
                     "relative z-10 h-10 shrink-0 px-0 text-xs font-normal leading-none tracking-normal text-[color:var(--muted-foreground)] transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:bg-[color:var(--foreground)] after:opacity-0 after:transition-opacity after:duration-200 after:ease-in-out after:content-[''] hover:text-[color:color-mix(in_oklab,var(--foreground)_80%,transparent)]",
                     active &&

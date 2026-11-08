@@ -6,10 +6,29 @@ import {
 export type ToolcraftControlRendererKind =
   | "action"
   | "basic"
+  | "canvas-handle"
   | "collection"
   | "compound"
   | "media"
   | "settings";
+
+export type ToolcraftControlRendererStateDependency =
+  | "canvas.size"
+  | "mediaAssets"
+  | "value";
+
+export const TOOLCRAFT_CONTROL_RENDERER_STATE_DEPENDENCIES = {
+  action: [],
+  basic: ["value"],
+  "canvas-handle": [],
+  collection: ["value"],
+  compound: ["value"],
+  media: ["canvas.size", "mediaAssets", "value"],
+  settings: [],
+} as const satisfies Record<
+  ToolcraftControlRendererKind,
+  readonly ToolcraftControlRendererStateDependency[]
+>;
 
 export const TOOLCRAFT_CONTROL_RENDERER_REGISTRY = {
   actions: "action",
@@ -19,6 +38,7 @@ export const TOOLCRAFT_CONTROL_RENDERER_REGISTRY = {
   checkbox: "basic",
   code: "basic",
   collectionActions: "collection",
+  sourceCollection: "collection",
   color: "compound",
   colorOpacity: "compound",
   curves: "compound",
@@ -26,6 +46,7 @@ export const TOOLCRAFT_CONTROL_RENDERER_REGISTRY = {
   fontPicker: "compound",
   gradient: "compound",
   imagePicker: "compound",
+  orientationGizmo: "canvas-handle",
   palette: "compound",
   panelActions: "action",
   rangeInput: "basic",
@@ -35,6 +56,7 @@ export const TOOLCRAFT_CONTROL_RENDERER_REGISTRY = {
   settingsTransfer: "settings",
   slider: "basic",
   switch: "basic",
+  tabs: "basic",
   text: "basic",
   vector: "basic",
 } as const satisfies Record<
@@ -52,4 +74,12 @@ export function getToolcraftControlRendererKind(
         controlType as ToolcraftBuiltInControlType
       ]
     : null;
+}
+
+export function getToolcraftControlRendererStateDependencies(
+  controlType: string,
+): readonly ToolcraftControlRendererStateDependency[] {
+  const kind = getToolcraftControlRendererKind(controlType);
+
+  return kind ? TOOLCRAFT_CONTROL_RENDERER_STATE_DEPENDENCIES[kind] : ["value"];
 }

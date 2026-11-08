@@ -1,34 +1,41 @@
-import type { ResolvedToolcraftAppSchema } from "@/toolcraft/runtime";
+import type { ResolvedToolcraftAppSchema, ToolcraftRendererPipeline } from "@/toolcraft/runtime";
 
 import {
   getToolcraftAnimationConfigurationErrors,
   getToolcraftAnimationModeChoiceErrors,
 } from "./animation-intent";
 import { getToolcraftControlAcceptanceErrors } from "./control-acceptance";
+import { validateToolcraftCapabilityProofs } from "./capability-proofs/validate-capability-proofs";
+import { getToolcraftControlApplicabilityErrors } from "./control-applicability";
 import {
   getToolcraftControlSectionHeuristicErrors,
   getToolcraftControlSectionInvariantErrors,
 } from "./control-layout";
 import { getToolcraftControlOrderErrors } from "./control-order";
+import { getToolcraftControlSectionEntityCohesionErrors } from "./control-section-entity-cohesion";
 import { getToolcraftControlSectionInventoryErrors } from "./control-section-inventory";
 import { isToolcraftVisibleAcceptanceControl } from "./controls";
 import { getToolcraftInlineLayoutErrors } from "./inline-layout";
+import { getToolcraftInfinityCanvasCoverageErrors } from "./infinity-canvas";
 import {
   getToolcraftOutputExportErrors,
   schemaHasVideoExportPanelAction,
 } from "./output-export";
+import { getToolcraftOrientationGizmoErrors } from "./orientation-gizmo";
+import { getToolcraftMotionReferenceStudyErrors } from "./motion-reference-study";
 import { getToolcraftReferenceRuntimeCloneErrors } from "./reference-runtime";
+import { getToolcraftRenderScaleCoverageErrors } from "./render-scale";
+import { getToolcraftSelectionScopeErrors } from "./selection-scope";
 import {
   getToolcraftCanvasSizingCoverageErrors,
-  getToolcraftLayerCoverageErrors,
-  getToolcraftPersistenceCoverageErrors,
-  getToolcraftTimelineKeyframeCoverageErrors,
-  getToolcraftTimelinePlaybackCoverageErrors,
+  getToolcraftPersistenceCoverageResult,
 } from "./runtime-coverage";
 import { getToolcraftRuntimeSetupSectionErrors } from "./runtime-setup";
+import { getToolcraftInteractionOwnershipErrors } from "./interaction-ownership";
 import type {
   ToolcraftComponentAcceptance,
   ToolcraftControlSectionInventoryEntry,
+  ToolcraftProductReadiness,
   ToolcraftTransferMode,
   ToolcraftVisibleControl,
 } from "./types";
@@ -39,10 +46,13 @@ import {
   type ToolcraftAcceptanceValidationContext,
   type ToolcraftAcceptanceValidator,
 } from "./validation-pipeline";
-import { getToolcraftVideoReferenceStudyErrors } from "./video-reference-study";
+import { getToolcraftViewInteractionErrors } from "./view-interaction";
+import { getToolcraftBrowserProofErrors } from "./browser-proof";
 
 export type ToolcraftAcceptanceValidationInput = {
   acceptance: readonly ToolcraftComponentAcceptance[];
+  productReadiness: ToolcraftProductReadiness;
+  rendererPipeline?: ToolcraftRendererPipeline;
   schema: ResolvedToolcraftAppSchema;
   sectionInventory: readonly ToolcraftControlSectionInventoryEntry[];
   transferMode: ToolcraftTransferMode;
@@ -64,30 +74,74 @@ export function collectToolcraftVisibleAcceptanceControls(
 
 function createToolcraftAcceptanceValidationContext({
   acceptance,
+  productReadiness,
+  rendererPipeline,
   schema,
   sectionInventory,
   transferMode,
-}: {
-  acceptance: readonly ToolcraftComponentAcceptance[];
-  schema: ResolvedToolcraftAppSchema;
-  sectionInventory: readonly ToolcraftControlSectionInventoryEntry[];
-  transferMode: ToolcraftTransferMode;
-}): ToolcraftAcceptanceValidationContext {
+}: ToolcraftAcceptanceValidationInput): ToolcraftAcceptanceValidationContext {
   const controls = collectToolcraftVisibleAcceptanceControls(schema);
+  const persistence = getToolcraftPersistenceCoverageResult({
+    acceptance,
+    schema,
+  });
 
   return {
     acceptance,
     controls,
     hasVideoExportAction: schemaHasVideoExportPanelAction(schema),
     layersEnabled: Boolean(schema.panels.layers),
+    persistence,
+    productReadiness,
+    rendererPipeline,
     schema,
     sectionInventory,
-    timelineMode: schema.panels.timeline?.enabled ? schema.panels.timeline.mode : null,
+    timelineMode: schema.panels.timeline?.enabled
+      ? schema.panels.timeline.mode
+      : null,
     transferMode,
   };
 }
 
 const toolcraftAcceptanceValidators: readonly ToolcraftAcceptanceValidator[] = [
+  {
+    path: "acceptance.browser",
+    ruleId: "acceptance-product-observable",
+    validate: ({ acceptance }) => [
+      ...getToolcraftBrowserProofErrors(acceptance),
+    ],
+  },
+  {
+    path: "appProductReadiness.interactionOwnership",
+    ruleId: "interaction-surface-ownership",
+    validate: ({ acceptance, controls, productReadiness }) =>
+      getToolcraftInteractionOwnershipErrors({
+        acceptance,
+        controls,
+        productReadiness,
+      }),
+  },
+  {
+    path: "appProductReadiness.interactionOwnership[].selectionScope",
+    ruleId: "interaction-surface-ownership",
+    validate: ({ acceptance, layersEnabled, productReadiness, schema }) =>
+      getToolcraftSelectionScopeErrors({
+        acceptance,
+        layersEnabled,
+        productReadiness,
+        schema,
+      }),
+  },
+  {
+    path: "appProductReadiness.viewInteraction",
+    ruleId: "renderer-view-interaction",
+    validate: ({ productReadiness, schema, transferMode }) =>
+      getToolcraftViewInteractionErrors({
+        productReadiness,
+        schema,
+        transferMode,
+      }),
+  },
   {
     path: "schema.panels.controls.setup",
     ruleId: "output-export-required",
@@ -110,10 +164,30 @@ const toolcraftAcceptanceValidators: readonly ToolcraftAcceptanceValidator[] = [
       getToolcraftControlSectionInvariantErrors(schema, sectionInventory),
   },
   {
+    path: "schema.panels.controls.sections[].controls",
+    ruleId: "controls-product-coverage",
+    validate: ({ schema }) => getToolcraftOrientationGizmoErrors(schema),
+  },
+  {
+    path: "schema.panels.controls.sections[].controls[].applicability",
+    ruleId: "controls-product-coverage",
+    validate: ({ controls, productReadiness }) =>
+      getToolcraftControlApplicabilityErrors({
+        controls,
+        productReadiness,
+      }),
+  },
+  {
     path: "appControlSectionInventory",
     ruleId: "controls-section-inventory-required",
     validate: ({ schema, sectionInventory }) =>
       getToolcraftControlSectionInventoryErrors(schema, sectionInventory),
+  },
+  {
+    path: "appControlSectionInventory",
+    ruleId: "controls-section-inventory-required",
+    validate: ({ sectionInventory }) =>
+      getToolcraftControlSectionEntityCohesionErrors(sectionInventory),
   },
   {
     path: "schema.panels.controls.sections[].layoutGroups",
@@ -123,13 +197,31 @@ const toolcraftAcceptanceValidators: readonly ToolcraftAcceptanceValidator[] = [
   {
     path: "schema.export",
     ruleId: "output-export-required",
-    validate: ({ controls, hasVideoExportAction, schema }) =>
-      getToolcraftOutputExportErrors({ controls, hasVideoExportAction, schema }),
+    validate: ({ acceptance, controls, productReadiness, schema }) =>
+      getToolcraftOutputExportErrors({
+        acceptance,
+        controls,
+        productReadiness,
+        schema,
+      }),
   },
   {
-    path: "appTransferMode.videoReferenceStudy",
+    path: "schema.modulePlan.capabilities",
+    ruleId: "acceptance-product-observable",
+    validate: (context) =>
+      context.productReadiness.mode === "product"
+        ? [
+            ...validateToolcraftCapabilityProofs({
+              context,
+              plan: context.schema.modulePlan,
+            }),
+          ]
+        : [],
+  },
+  {
+    path: "appTransferMode.referenceInputs",
     ruleId: "video-reference-analysis",
-    validate: getToolcraftVideoReferenceStudyErrors,
+    validate: getToolcraftMotionReferenceStudyErrors,
   },
   {
     path: "appTransferMode.animationIntent",
@@ -145,25 +237,12 @@ const toolcraftAcceptanceValidators: readonly ToolcraftAcceptanceValidator[] = [
     path: "appTransferMode.referenceStudy",
     ruleId: "reference-clone-source-of-truth",
     validate: ({ acceptance, schema, timelineMode, transferMode }) =>
-      getToolcraftReferenceRuntimeCloneErrors({ acceptance, schema, timelineMode, transferMode }),
-  },
-  {
-    path: "acceptance.layerCoverage",
-    ruleId: "layers-enabled-behavior",
-    validate: ({ acceptance, layersEnabled }) =>
-      getToolcraftLayerCoverageErrors({ acceptance, layersEnabled }),
-  },
-  {
-    path: "acceptance.timelineCoverage",
-    ruleId: "timeline-enabled-behavior",
-    validate: ({ acceptance, timelineMode }) =>
-      getToolcraftTimelinePlaybackCoverageErrors({ acceptance, timelineMode }),
-  },
-  {
-    path: "acceptance.timelineCoverage",
-    ruleId: "timeline-enabled-behavior",
-    validate: ({ acceptance, timelineMode }) =>
-      getToolcraftTimelineKeyframeCoverageErrors({ acceptance, timelineMode }),
+      getToolcraftReferenceRuntimeCloneErrors({
+        acceptance,
+        schema,
+        timelineMode,
+        transferMode,
+      }),
   },
   {
     path: "acceptance.canvasSizingCoverage",
@@ -172,19 +251,43 @@ const toolcraftAcceptanceValidators: readonly ToolcraftAcceptanceValidator[] = [
       getToolcraftCanvasSizingCoverageErrors({ acceptance, schema }),
   },
   {
+    path: "acceptance.renderScaleCoverage",
+    ruleId: "acceptance-product-observable",
+    validate: ({ acceptance, schema }) =>
+      getToolcraftRenderScaleCoverageErrors({ acceptance, schema }),
+  },
+  {
+    path: "acceptance.infinityCanvasCoverage",
+    ruleId: "infinity-canvas-scene-bounds",
+    validate: ({ acceptance, productReadiness, rendererPipeline, schema }) =>
+      getToolcraftInfinityCanvasCoverageErrors({
+        acceptance,
+        productReadiness,
+        rendererPipeline,
+        schema,
+      }),
+  },
+  {
     path: "acceptance.persistenceCoverage",
     ruleId: "persistence-policy-explicit",
-    validate: ({ acceptance, schema }) =>
-      getToolcraftPersistenceCoverageErrors({ acceptance, schema }),
+    validate: ({ persistence }) => [...persistence.diagnostics],
   },
   {
     path: "acceptance.controls",
     ruleId: "controls-product-coverage",
-    validate: ({ acceptance, controls, layersEnabled, schema, timelineMode }) =>
+    validate: ({
+      acceptance,
+      controls,
+      layersEnabled,
+      productReadiness,
+      schema,
+      timelineMode,
+    }) =>
       getToolcraftControlAcceptanceErrors({
         acceptance,
         controls,
         layersEnabled,
+        productReadiness,
         schema,
         timelineMode,
       }),
@@ -202,6 +305,8 @@ export function validateToolcraftAcceptanceDiagnostics(
 
 export function validateToolcraftAcceptanceCoverage({
   acceptance,
+  productReadiness,
+  rendererPipeline,
   schema,
   sectionInventory,
   transferMode,
@@ -209,6 +314,8 @@ export function validateToolcraftAcceptanceCoverage({
   return getBlockingToolcraftAcceptanceMessages(
     validateToolcraftAcceptanceDiagnostics({
       acceptance,
+      productReadiness,
+      rendererPipeline,
       schema,
       sectionInventory,
       transferMode,

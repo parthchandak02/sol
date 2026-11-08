@@ -1,8 +1,11 @@
-import type { ToolcraftControlSchema } from "@/toolcraft/runtime";
+import { getToolcraftSegmentedStaticFitError } from "@/toolcraft/runtime";
+import type {
+  ToolcraftCollectionItemControlSchema,
+  ToolcraftControlSchema,
+} from "@/toolcraft/runtime";
 
 import { getActionValue, isResetPanelAction } from "./actions";
 import {
-  getSegmentedControlLayoutError,
   getSliderVariantClassificationErrors,
   getStepMarkerCount,
 } from "./control-component-rules";
@@ -10,7 +13,9 @@ import { isSliderLikeControl } from "./controls";
 import { hasCoverageForValues } from "./coverage";
 import type { ToolcraftComponentAcceptance } from "./types";
 
-function getControlOptionValues(control: ToolcraftControlSchema): readonly string[] {
+function getControlOptionValues(
+  control: ToolcraftControlSchema,
+): readonly string[] {
   if (control.type === "imagePicker") {
     return control.items?.map((item) => item.value) ?? [];
   }
@@ -82,17 +87,48 @@ function getOptionControlAcceptanceErrors({
     }
   }
 
-  if (control.type === "select" || control.type === "segmented") {
+  if (control.type === "select" || control.type === "segmented" || control.type === "tabs") {
     const optionValues = getControlOptionValues(control);
 
-    if (optionValues.length > 1 && !hasCoverageForValues(entry.optionCoverage, optionValues)) {
-      errors.push(`${label} must cover every visible option: ${optionValues.join(", ")}.`);
+    if (
+      optionValues.length > 1 &&
+      !hasCoverageForValues(entry.optionCoverage, optionValues)
+    ) {
+      errors.push(
+        `${label} must cover every visible option: ${optionValues.join(", ")}.`,
+      );
     }
 
-    const segmentedLayoutError = getSegmentedControlLayoutError(control);
+    const segmentedLayoutError = getToolcraftSegmentedStaticFitError(control);
 
     if (segmentedLayoutError) {
       errors.push(`${label} ${segmentedLayoutError}`);
+    }
+  }
+
+  const nestedItemControls: Array<
+    [string, ToolcraftCollectionItemControlSchema]
+  > = [];
+
+  if (control.itemControl) {
+    nestedItemControls.push(["itemControl", control.itemControl]);
+  }
+
+  if (control.itemControls) {
+    nestedItemControls.push(
+      ...Object.entries(control.itemControls).map(
+        ([itemId, itemControl]): [string, ToolcraftCollectionItemControlSchema] =>
+          [`itemControls.${itemId}`, itemControl],
+      ),
+    );
+  }
+
+  for (const [itemId, itemControl] of nestedItemControls) {
+    const segmentedLayoutError =
+      getToolcraftSegmentedStaticFitError(itemControl);
+
+    if (segmentedLayoutError) {
+      errors.push(`${label} ${itemId} ${segmentedLayoutError}`);
     }
   }
 
@@ -124,10 +160,40 @@ function getPanelActionsAcceptanceErrors({
   }
 
   if (!hasCoverageForValues(entry.actionCoverage, actionValues)) {
-    errors.push(`${label} must cover every footer action: ${actionValues.join(", ")}.`);
+    errors.push(
+      `${label} must cover every footer action: ${actionValues.join(", ")}.`,
+    );
   }
 
   return errors;
+}
+
+function getOrientationGizmoAcceptanceErrors({
+  control,
+  entry,
+  label,
+}: {
+  control: ToolcraftControlSchema;
+  entry: ToolcraftComponentAcceptance;
+  label: string;
+}): string[] {
+  if (control.type !== "orientationGizmo") {
+    return [];
+  }
+
+  if (entry.kind !== "canvas-handle") {
+    return [
+      `${label} is runtime canvas chrome and must use acceptance kind "canvas-handle", not a panel-control proof.`,
+    ];
+  }
+
+  if (entry.canvasHandle?.testId !== "toolcraft-orientation-gizmo") {
+    return [
+      `${label} must use the runtime gizmo testId "toolcraft-orientation-gizmo" so protected browser proof targets the built-in handle.`,
+    ];
+  }
+
+  return [];
 }
 
 export function getControlKindAcceptanceErrors({
@@ -145,5 +211,6 @@ export function getControlKindAcceptanceErrors({
     ...getSliderControlAcceptanceErrors({ control, controlId, label }),
     ...getOptionControlAcceptanceErrors({ control, entry, label }),
     ...getPanelActionsAcceptanceErrors({ control, entry, label }),
+    ...getOrientationGizmoAcceptanceErrors({ control, entry, label }),
   ];
 }

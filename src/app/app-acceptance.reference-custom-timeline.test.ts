@@ -19,6 +19,7 @@ describe("starter acceptance custom reference timeline contract", () => {
         transferMode: {
           behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy state timeline",
           referenceTimeline: {
             behaviorCoverage: ["state-jump", "trim-range"],
@@ -46,8 +47,11 @@ describe("starter acceptance custom reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference canvas size matches legacy renderer",
-            browser: true,
-            browserTestName: "browser: reference canvas size matches legacy renderer",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference canvas size matches legacy renderer",
+            },
             componentType: "custom-renderer",
             evidence: "rendered-pixels",
             expectedObservable: "The Toolcraft renderer uses the same output dimensions as the reference runtime.",
@@ -60,8 +64,11 @@ describe("starter acceptance custom reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference control mapping preserves legacy output",
-            browser: true,
-            browserTestName: "browser: reference control mapping preserves legacy output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference control mapping preserves legacy output",
+            },
             componentType: "custom-renderer",
             evidence: "product-output",
             expectedObservable: "Changing each mapped control updates the same renderer parameter as the reference app.",
@@ -74,8 +81,11 @@ describe("starter acceptance custom reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference renderer state preserves legacy lifecycle",
-            browser: true,
-            browserTestName: "browser: reference renderer state preserves legacy lifecycle",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference renderer state preserves legacy lifecycle",
+            },
             componentType: "custom-renderer",
             evidence: "product-output",
             expectedObservable: "The renderer preserves the reference runtime mutable state lifecycle across frames.",
@@ -88,8 +98,11 @@ describe("starter acceptance custom reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference timeline state buttons preserve legacy jumps",
-            browser: true,
-            browserTestName: "browser: reference timeline state buttons preserve legacy jumps",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference timeline state buttons preserve legacy jumps",
+            },
             componentType: "custom-timeline",
             evidence: "timeline-output",
             expectedObservable: "Clicking each reference timeline state renders the matching legacy state.",
@@ -102,8 +115,11 @@ describe("starter acceptance custom reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference timeline trim handles preserve legacy range",
-            browser: true,
-            browserTestName: "browser: reference timeline trim handles preserve legacy range",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference timeline trim handles preserve legacy range",
+            },
             componentType: "custom-timeline",
             evidence: "timeline-output",
             expectedObservable: "Dragging trim handles changes the same start/end state range as the reference.",
@@ -117,6 +133,7 @@ describe("starter acceptance custom reference timeline contract", () => {
         transferMode: {
           behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceFeatureInventory: makeReferenceFeatureInventory([
             {
               acceptanceId: "reference.timeline.stateJump",
@@ -160,8 +177,11 @@ describe("starter acceptance custom reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference renderer state preserves legacy lifecycle",
-            browser: true,
-            browserTestName: "browser: reference renderer state preserves legacy lifecycle",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference renderer state preserves legacy lifecycle",
+            },
             componentType: "custom-renderer",
             evidence: "product-output",
             expectedObservable: "The renderer preserves the reference runtime mutable state lifecycle across frames.",
@@ -174,8 +194,11 @@ describe("starter acceptance custom reference timeline contract", () => {
           {
             automated: true,
             automatedTestName: "reference timeline trim handles preserve legacy range",
-            browser: true,
-            browserTestName: "browser: reference timeline trim handles preserve legacy range",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: reference timeline trim handles preserve legacy range",
+            },
             componentType: "custom-timeline",
             evidence: "timeline-output",
             expectedObservable: "Dragging trim handles changes the same start/end state range as the reference.",

@@ -36,12 +36,14 @@ function hasSliderControl(
   );
 }
 
-function hasSegmentedControl(
+function hasFullWidthChoiceControl(
   controlsById: Record<string, ToolcraftControlSchema>,
   layoutGroup: ToolcraftControlLayoutGroupSchema,
 ): boolean {
   return layoutGroup.controls.some(
-    (controlId) => controlsById[controlId]?.type === "segmented",
+    (controlId) =>
+      controlsById[controlId]?.type === "segmented" ||
+      controlsById[controlId]?.type === "tabs",
   );
 }
 
@@ -255,7 +257,7 @@ export function renderControlLayoutGroups({
       continue;
     }
 
-    if (groupedRenderedControls.length < 2) {
+    if (groupedRenderedControls.length < 2 && !layoutGroup.preserveColumns) {
       nodes.push(renderedGroup.node);
       continue;
     }
@@ -295,7 +297,7 @@ export function getInlineLayoutGroupByControlId({
     if (
       hasColorOpacityControl(controlsById, layoutGroup) ||
       hasSliderControl(controlsById, layoutGroup) ||
-      hasSegmentedControl(controlsById, layoutGroup) ||
+      hasFullWidthChoiceControl(controlsById, layoutGroup) ||
       hasSectionedCompoundControl(controlsById, layoutGroup) ||
       hasUnsafeInlineSwitchLabels(controlsById, layoutGroup)
     ) {

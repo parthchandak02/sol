@@ -31,7 +31,7 @@ export async function measureToolcraftInteraction(
     options,
     "expectedOutcome",
   );
-  const outcomeMessage = `Toolcraft performance outcome "${options.scenarioId ?? "interaction"}" should ${hasExpectedOutcome ? "reach the expected state" : "change"} after the measured action.`;
+  const outcomeMessage = `Toolcraft performance outcome "${options.pathId ?? "interaction"}" should ${hasExpectedOutcome ? "reach the expected state" : "change"} after the measured action.`;
   const outcomeBefore = options.observeOutcome
     ? snapshotToolcraftOutcome(
         await options.observeOutcome(),
@@ -145,10 +145,10 @@ export async function measureToolcraftInteraction(
           stableOutcomeOptions,
         );
       }
-      if (options.scenarioId) {
+      if (options.pathId) {
         await attachToolcraftBrowserRuntimeEvidence({
           evidenceType: "performance-product-outcome",
-          requirementId: options.scenarioId,
+          requirementId: options.pathId,
           target: options.target,
         });
       }
@@ -168,10 +168,7 @@ export async function measureToolcraftInteraction(
 
     return finalizeToolcraftMeasurement({
       durationMs: (measuredEndedAt ?? actionEndedAt) - startedAt,
-      longTaskCount: frameProbe.longTaskCount,
-      longTaskMaxMs: frameProbe.longTaskMaxMs,
-      maxFrameGapMs: frameProbe.maxFrameGapMs,
-      sampleCount: frameProbe.sampleCount,
+      ...frameProbe,
     }, options, "interaction");
   } catch (error) {
     outcomeObservationCancelled = true;
@@ -212,10 +209,7 @@ export async function measureToolcraftAnimationFrames(
 
     return finalizeToolcraftMeasurement({
       durationMs: endedAt - startedAt,
-      longTaskCount: frameProbe.longTaskCount,
-      longTaskMaxMs: frameProbe.longTaskMaxMs,
-      maxFrameGapMs: frameProbe.maxFrameGapMs,
-      sampleCount: frameProbe.sampleCount,
+      ...frameProbe,
     }, options, "animation-frames");
   } catch (error) {
     await stopProbe();

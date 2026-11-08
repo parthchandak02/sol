@@ -2,11 +2,18 @@
 
 import * as React from "react";
 
-import { clampToolcraftCanvasZoom } from "../../state/canvas-zoom";
-import type {
-  ToolcraftCommand,
-  ToolcraftPoint,
-} from "../../state/types";
+import type { CanvasNavigationInput } from "./canvas-navigation-controller";
+import { useCanvasWheelGestures } from "./use-canvas-wheel-gestures";
+import { useCanvasPanShortcut } from "./use-canvas-pan-shortcut";
+import type { ToolcraftExternalStore } from "../../state/toolcraft-external-store";
+import type { ToolcraftPoint } from "../../state/types";
+import {
+  createCanvasPinchState,
+  getCanvasPointerCenter,
+  getCanvasPointerDistance,
+  getPinchedCanvasViewport,
+  type CanvasPinchState,
+} from "./canvas-viewport-geometry";
 
 type CanvasDragState = {
   originX: number;
@@ -16,188 +23,264 @@ type CanvasDragState = {
   startY: number;
 };
 
-const wheelZoomSensitivity = 0.12;
-const wheelPinchZoomSensitivity = 0.5;
-
-function isEventTargetInsideElement(
-  target: EventTarget | null,
-  element: HTMLElement,
-): boolean {
-  return target instanceof Node && element.contains(target);
-}
-
-function getNextWheelZoom(
-  currentZoom: number,
-  event: Pick<WheelEvent, "ctrlKey" | "deltaY">,
-): number {
-  const sensitivity = event.ctrlKey
-    ? wheelPinchZoomSensitivity
-    : wheelZoomSensitivity;
-  const rawDelta = -event.deltaY * sensitivity;
-  const zoomDelta = Math.trunc(rawDelta) || Math.sign(rawDelta);
-
-  return clampToolcraftCanvasZoom(currentZoom + zoomDelta);
-}
-
-function getZoomedCanvasOffset({
-  clientX,
-  clientY,
-  currentZoom,
-  nextZoom,
-  offset,
-  viewportElement,
-}: {
-  clientX: number;
-  clientY: number;
-  currentZoom: number;
-  nextZoom: number;
-  offset: ToolcraftPoint;
-  viewportElement: HTMLElement;
-}): ToolcraftPoint {
-  const rect = viewportElement.getBoundingClientRect();
-  const currentScale = currentZoom / 100;
-  const nextScale = nextZoom / 100;
-  const pointerX = clientX - rect.left - rect.width / 2;
-  const pointerY = clientY - rect.top - rect.height / 2;
-  const worldX = (pointerX - offset.x) / currentScale;
-  const worldY = (pointerY - offset.y) / currentScale;
-
-  return {
-    x: pointerX - worldX * nextScale,
-    y: pointerY - worldY * nextScale,
-  };
-}
-
 export function useCanvasViewportInteractions({
-  dispatch,
   draggable,
-  offset,
-  zoom,
+  store,
 }: {
-  dispatch: React.Dispatch<ToolcraftCommand>;
   draggable: boolean;
-  offset: ToolcraftPoint;
-  zoom: number;
+  store: ToolcraftExternalStore;
 }): {
+  handleViewportInput(input: CanvasNavigationInput): void;
   handlePointerDown: React.PointerEventHandler<HTMLDivElement>;
-  handlePointerMove: React.PointerEventHandler<HTMLDivElement>;
+  handlePointerDownCapture: React.PointerEventHandler<HTMLDivElement>;
+  handlePointerMoveCapture: React.PointerEventHandler<HTMLDivElement>;
   handlePointerUp: React.PointerEventHandler<HTMLDivElement>;
+  handlePointerUpCapture: React.PointerEventHandler<HTMLDivElement>;
+  panState: "idle" | "ready" | "dragging";
   viewportRef: React.RefObject<HTMLDivElement | null>;
 } {
+  const activeTouchPointersRef = React.useRef<Map<number, ToolcraftPoint>>(
+    new Map(),
+  );
   const dragRef = React.useRef<CanvasDragState | null>(null);
+  const pinchRef = React.useRef<CanvasPinchState | null>(null);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
-
-  React.useEffect(() => {
-    const viewportElement = viewportRef.current;
-
-    if (!viewportElement) {
-      return undefined;
+  const { commitPendingWheel, handleViewportInput } = useCanvasWheelGestures(store, viewportRef);
+  const [dragging, setDragging] = React.useState(false);
+  const finishDrag = React.useCallback((): void => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    dragRef.current = null;
+    setDragging(false);
+    if (viewportRef.current?.hasPointerCapture?.(drag.pointerId)) {
+      viewportRef.current.releasePointerCapture(drag.pointerId);
     }
+    store.commitTransient("viewport");
+  }, [store]);
+  const spacePressed = useCanvasPanShortcut({ draggable, onCancel: finishDrag, viewportRef });
+  const startDrag = React.useCallback<React.PointerEventHandler<HTMLDivElement>>((event) => {
+    event.preventDefault();
+    commitPendingWheel();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const { offset } = store.getState().canvas;
+    dragRef.current = {
+      originX: offset.x,
+      originY: offset.y,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    setDragging(true);
+  }, [commitPendingWheel, store]);
+  const moveDrag = React.useCallback<React.PointerEventHandler<HTMLDivElement>>((event) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    store.dispatchTransient({
+      offset: {
+        x: drag.originX + event.clientX - drag.startX,
+        y: drag.originY + event.clientY - drag.startY,
+      },
+      type: "canvas.setOffset",
+    });
+  }, [store]);
 
-    const workspaceElement =
-      viewportElement.closest<HTMLElement>(
-        '[data-slot="toolcraft-runtime-app"]',
-      ) ?? viewportElement;
-    const listenerOptions: AddEventListenerOptions = { capture: true, passive: false };
-    const handleWheel = (event: WheelEvent): void => {
-      const targetIsInsideCanvas = isEventTargetInsideElement(
-        event.target,
-        viewportElement,
-      );
-      if (!targetIsInsideCanvas) {
-        if (event.ctrlKey) {
-          event.preventDefault();
-          event.stopPropagation();
+  React.useEffect(() => () => {
+    if (dragRef.current || pinchRef.current || activeTouchPointersRef.current.size) {
+      activeTouchPointersRef.current.clear();
+      dragRef.current = null;
+      pinchRef.current = null;
+      store.commitTransient("viewport");
+    }
+  }, [store]);
+
+  const handlePointerDownCapture: React.PointerEventHandler<HTMLDivElement> =
+    React.useCallback(
+      (event) => {
+        if (event.pointerType !== "touch") {
+          if (spacePressed && event.button === 0 && !dragRef.current) {
+            event.stopPropagation();
+            startDrag(event);
+          }
+          return;
         }
 
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (!event.ctrlKey) {
-        dispatch({
-          offset: {
-            x: offset.x - event.deltaX,
-            y: offset.y - event.deltaY,
-          },
-          type: "canvas.setOffset",
+        activeTouchPointersRef.current.set(event.pointerId, {
+          x: event.clientX,
+          y: event.clientY,
         });
-        return;
-      }
 
-      const nextZoom = getNextWheelZoom(zoom, event);
+        if (activeTouchPointersRef.current.size < 2) {
+          return;
+        }
 
-      if (nextZoom === zoom) {
-        return;
-      }
+        event.preventDefault();
+        event.stopPropagation();
+        commitPendingWheel();
 
-      dispatch({
-        offset: getZoomedCanvasOffset({
-          clientX: event.clientX,
-          clientY: event.clientY,
-          currentZoom: zoom,
-          nextZoom,
+        if (typeof event.currentTarget.setPointerCapture === "function") {
+          for (const pointerId of activeTouchPointersRef.current.keys()) {
+            event.currentTarget.setPointerCapture(pointerId);
+          }
+        }
+
+        const { offset, zoom } = store.getState().canvas;
+        dragRef.current = null;
+        setDragging(false);
+        pinchRef.current = createCanvasPinchState(
+          activeTouchPointersRef.current,
           offset,
-          viewportElement,
-        }),
-        type: "canvas.setViewport",
-        zoom: nextZoom,
-      });
-    };
+          zoom,
+        );
+      },
+      [commitPendingWheel, spacePressed, startDrag, store],
+    );
 
-    workspaceElement.addEventListener("wheel", handleWheel, listenerOptions);
+  const handlePointerMoveCapture: React.PointerEventHandler<HTMLDivElement> =
+    React.useCallback(
+      (event) => {
+        if (dragRef.current?.pointerId === event.pointerId && !pinchRef.current) {
+          moveDrag(event);
+        }
+        if (
+          event.pointerType !== "touch" ||
+          !activeTouchPointersRef.current.has(event.pointerId)
+        ) {
+          return;
+        }
 
-    return () => {
-      workspaceElement.removeEventListener(
-        "wheel",
-        handleWheel,
-        listenerOptions,
-      );
-    };
-  }, [dispatch, offset, zoom]);
+        activeTouchPointersRef.current.set(event.pointerId, {
+          x: event.clientX,
+          y: event.clientY,
+        });
+
+        const pinch = pinchRef.current;
+
+        if (!pinch) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        const first = activeTouchPointersRef.current.get(pinch.pointerIds[0]);
+        const second = activeTouchPointersRef.current.get(pinch.pointerIds[1]);
+
+        if (!first || !second) {
+          return;
+        }
+
+        const firstPointer = { pointerId: pinch.pointerIds[0], ...first };
+        const secondPointer = { pointerId: pinch.pointerIds[1], ...second };
+        const currentDistance = getCanvasPointerDistance(
+          firstPointer,
+          secondPointer,
+        );
+
+        if (currentDistance <= 0) {
+          return;
+        }
+
+        store.dispatchTransient({
+          ...getPinchedCanvasViewport({
+            currentCenter: getCanvasPointerCenter(firstPointer, secondPointer),
+            currentDistance,
+            pinch,
+            viewportElement: event.currentTarget,
+          }),
+          type: "canvas.setViewport",
+        });
+      },
+      [moveDrag, store],
+    );
+
+  const handlePointerUpCapture: React.PointerEventHandler<HTMLDivElement> =
+    React.useCallback(
+      (event) => {
+        if (event.pointerType !== "touch" && dragRef.current?.pointerId === event.pointerId) {
+          event.preventDefault();
+          event.stopPropagation();
+          finishDrag();
+          return;
+        }
+        if (
+          event.pointerType !== "touch" ||
+          !activeTouchPointersRef.current.has(event.pointerId)
+        ) {
+          return;
+        }
+
+        if (
+          typeof event.currentTarget.hasPointerCapture === "function" &&
+          event.currentTarget.hasPointerCapture(event.pointerId)
+        ) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+
+        activeTouchPointersRef.current.delete(event.pointerId);
+
+        if (!pinchRef.current) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        const { offset, zoom } = store.getState().canvas;
+        pinchRef.current = createCanvasPinchState(
+          activeTouchPointersRef.current,
+          offset,
+          zoom,
+        );
+
+        if (pinchRef.current) {
+          return;
+        }
+
+        const remainingTouch = activeTouchPointersRef.current.entries().next();
+
+        if (!remainingTouch.done && draggable) {
+          const [pointerId, point] = remainingTouch.value;
+          dragRef.current = {
+            originX: offset.x,
+            originY: offset.y,
+            pointerId,
+            startX: point.x,
+            startY: point.y,
+          };
+          setDragging(true);
+          return;
+        }
+
+        for (const pointerId of activeTouchPointersRef.current.keys()) {
+          if (
+            typeof event.currentTarget.hasPointerCapture === "function" &&
+            event.currentTarget.hasPointerCapture(pointerId)
+          ) {
+            event.currentTarget.releasePointerCapture(pointerId);
+          }
+        }
+
+        activeTouchPointersRef.current.clear();
+        dragRef.current = null;
+        setDragging(false);
+        store.commitTransient("viewport");
+      },
+      [draggable, finishDrag, store],
+    );
 
   const handlePointerDown: React.PointerEventHandler<HTMLDivElement> = React.useCallback(
     (event) => {
-      if (!draggable || event.button !== 0) {
+      if (
+        !draggable ||
+        event.pointerType !== "touch" ||
+        dragRef.current !== null
+      ) {
         return;
       }
 
-      event.preventDefault();
-
-      if (typeof event.currentTarget.setPointerCapture === "function") {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }
-
-      dragRef.current = {
-        originX: offset.x,
-        originY: offset.y,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-      };
+      startDrag(event);
     },
-    [draggable, offset],
-  );
-
-  const handlePointerMove: React.PointerEventHandler<HTMLDivElement> = React.useCallback(
-    (event) => {
-      const drag = dragRef.current;
-
-      if (!drag || drag.pointerId !== event.pointerId) {
-        return;
-      }
-
-      dispatch({
-        offset: {
-          x: drag.originX + event.clientX - drag.startX,
-          y: drag.originY + event.clientY - drag.startY,
-        },
-        type: "canvas.setOffset",
-      });
-    },
-    [dispatch],
+    [draggable, startDrag],
   );
 
   const handlePointerUp: React.PointerEventHandler<HTMLDivElement> = React.useCallback(
@@ -206,22 +289,19 @@ export function useCanvasViewportInteractions({
         return;
       }
 
-      if (
-        typeof event.currentTarget.hasPointerCapture === "function" &&
-        event.currentTarget.hasPointerCapture(event.pointerId)
-      ) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-
-      dragRef.current = null;
+      finishDrag();
     },
-    [],
+    [finishDrag],
   );
 
   return {
+    handleViewportInput,
     handlePointerDown,
-    handlePointerMove,
+    handlePointerDownCapture,
+    handlePointerMoveCapture,
     handlePointerUp,
+    handlePointerUpCapture,
+    panState: dragging ? "dragging" : spacePressed ? "ready" : "idle",
     viewportRef,
   };
 }

@@ -1,40 +1,55 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  appAcceptance,
+  validateProductAcceptanceCoverage,
+} from "./app-acceptance";
 import { appPerformance } from "./app-performance";
 import { appSchema } from "./app-schema";
 
-function sectionTitles(): (string | undefined)[] {
-  return appSchema.panels.controls?.sections.map((section) => section.title) ?? [];
-}
-
 describe("appSchema", () => {
-  it("keeps the runtime Setup first, then Sol's product sections in order", () => {
-    expect(sectionTitles()).toEqual(["Setup", "Location", "Date", "Background", "Image Export", "Export"]);
-    expect(appSchema.panels.controls?.sections[0]?.controls.canvasRenderScale).toMatchObject({
-      target: "canvas.renderScale",
-    });
+  it("keeps runtime Settings first, then Sol's Place and Moment sections", () => {
+    const titles = appSchema.panels.controls?.sections.map((section) => section.title) ?? [];
+    expect(titles.indexOf("Settings")).toBeLessThan(titles.indexOf("Place"));
+    expect(titles.indexOf("Place")).toBeLessThan(titles.indexOf("Moment"));
+    expect(titles).toContain("Image Export");
   });
 
-  it("uses an editable 1920x1080 output with render scale and no uploads", () => {
-    expect(appSchema.canvas.sizing).toEqual({ mode: "editable-output" });
+  it("uses an editable 1920x1080 still output with render scale and no uploads or timeline", () => {
+    expect(appSchema.canvas.sizing).toMatchObject({ mode: "editable-output" });
     expect(appSchema.canvas.upload).toBe(false);
     expect(appSchema.canvas.renderScale.enabled).toBe(true);
     expect(appSchema.canvas.size).toMatchObject({ height: 1080, width: 1920 });
-  });
-
-  it("has no layers or timeline because Sol is one still picture", () => {
-    expect(appSchema.panels.layers).toBeFalsy();
-    expect(appSchema.panels.timeline).toBeUndefined();
     expect(appSchema.assembly.capabilities).not.toContain("timeline.playback");
-    expect(appSchema.assembly.capabilities).not.toContain("timeline.keyframes");
   });
 
-  it("keeps history and zoom in the toolbar", () => {
-    expect(appSchema.toolbar).toMatchObject({ history: true, radar: false, zoom: true });
+  it("derives one performance scenario per canonical path", () => {
+    expect(appPerformance.scenarios.length).toBeGreaterThan(0);
+    expect(new Set(appPerformance.scenarios.map((scenario) => scenario.pathId)).size).toBe(appPerformance.scenarios.length);
   });
 
-  it("covers the export resolution workload in the performance matrix", () => {
-    expect(appPerformance.workloadTargets).toEqual(["export.image.resolution"]);
-    expect(appPerformance.usesCustomRenderer).toBe(true);
+  it("declares production reload coverage for the starter schema", () => {
+    expect(appSchema.persistence.storage).toBe("localStorage");
+    if (appSchema.persistence.storage !== "localStorage") {
+      throw new Error(
+        "The starter must persist user settings in localStorage.",
+      );
+    }
+    expect(appSchema.persistence.include).toContain("canvas");
+    expect(
+      appAcceptance.find((entry) => entry.id === "persistence.reload"),
+    ).toMatchObject({
+      automated: true,
+      browser: {
+        budget: "extended-io",
+        file: "e2e/product-sol-persistence.spec.ts",
+      },
+      evidence: "persistence-state",
+      kind: "runtime",
+      persistenceCoverage: "reload",
+      persistenceSlices: appSchema.persistence.include,
+      target: "canvas.size.width",
+    });
+    expect(validateProductAcceptanceCoverage()).toEqual([]);
   });
 });

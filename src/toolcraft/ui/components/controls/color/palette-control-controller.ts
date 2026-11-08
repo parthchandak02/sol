@@ -20,6 +20,11 @@ import type {
   PaletteControlViewProps,
 } from "./palette-control-types";
 import { getPaletteBlockHeight } from "./palette-control-layout";
+import {
+  clearBrowserTimeout,
+  setBrowserTimeout,
+  subscribeBrowserWindowEvent,
+} from "../../primitives/browser-transport";
 
 const CLICK_COMMIT_IDLE_MS = 250;
 const PERSIST_SETTLE_MS = 160;
@@ -105,7 +110,7 @@ export function usePaletteControlController({
       return;
     }
 
-    window.clearTimeout(clickCommitTimeoutRef.current);
+    clearBrowserTimeout(clickCommitTimeoutRef.current);
     clickCommitTimeoutRef.current = null;
   }, []);
 
@@ -114,7 +119,7 @@ export function usePaletteControlController({
       return;
     }
 
-    window.clearTimeout(persistTimeoutRef.current);
+    clearBrowserTimeout(persistTimeoutRef.current);
     persistTimeoutRef.current = null;
   }, []);
 
@@ -171,7 +176,7 @@ export function usePaletteControlController({
         return true;
       }
 
-      persistTimeoutRef.current = window.setTimeout(() => {
+      persistTimeoutRef.current = setBrowserTimeout(() => {
         persistTimeoutRef.current = null;
         const nextPersist = pendingPersistRef.current;
         pendingPersistRef.current = null;
@@ -218,7 +223,7 @@ export function usePaletteControlController({
       clearPersistTimeout();
       pendingPersistRef.current = null;
       setInteractionState(true);
-      clickCommitTimeoutRef.current = window.setTimeout(() => {
+      clickCommitTimeoutRef.current = setBrowserTimeout(() => {
         flushPendingCommit();
       }, CLICK_COMMIT_IDLE_MS);
     },
@@ -325,14 +330,17 @@ export function usePaletteControlController({
       flushPendingCommit();
     };
 
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerFinish);
-    window.addEventListener("pointercancel", handlePointerFinish);
+    const unsubscribeMove = subscribeBrowserWindowEvent("pointermove", handlePointerMove);
+    const unsubscribeUp = subscribeBrowserWindowEvent("pointerup", handlePointerFinish);
+    const unsubscribeCancel = subscribeBrowserWindowEvent(
+      "pointercancel",
+      handlePointerFinish,
+    );
 
     return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerFinish);
-      window.removeEventListener("pointercancel", handlePointerFinish);
+      unsubscribeMove();
+      unsubscribeUp();
+      unsubscribeCancel();
     };
   }, [flushPendingCommit, isShadeDragging, updateDraggedShade]);
 

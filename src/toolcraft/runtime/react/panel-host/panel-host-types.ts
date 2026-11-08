@@ -1,12 +1,21 @@
 import type * as React from "react";
 
-import type { ToolcraftPanelId, ToolcraftPanelState } from "../../state/types";
+import type {
+  ToolcraftPanelId,
+  ToolcraftPanelState,
+} from "../../state/types";
+import type { ToolcraftPanelSnapEdge } from "../../contracts/types";
 
 export type { ToolcraftPanelState } from "../../state/types";
 
 export type ToolcraftPanelType = ToolcraftPanelId;
 
-export type PanelSnapEdge = "bottom" | "left" | "right" | "top";
+export type PanelSnapEdge = ToolcraftPanelSnapEdge;
+
+export type PanelSnapPlacement = {
+  offset: PanelPoint;
+  snapEdge?: PanelSnapEdge;
+};
 
 export type PanelDragMode = "handle" | "panel";
 
@@ -40,12 +49,14 @@ export type PanelHostProps = {
   className?: string;
   dragMode?: PanelDragMode;
   innerClassName?: string;
+  onPlacementChange?: (placement: PanelSnapPlacement) => void;
   onPositionChange?: (position: PanelPoint) => void;
   onResetPosition?: () => void;
   panelId?: string;
   panelType: ToolcraftPanelType;
   position?: PanelPoint;
   snap?: PanelSnapConfig;
+  snapEdge?: PanelSnapEdge;
   style?: React.CSSProperties;
 };
 
@@ -59,6 +70,7 @@ export type PanelContainerProps = {
   dragMode?: PanelDragMode;
   onPanelStateChange?: PanelStateChange;
   panelClassName?: string;
+  panelStyle?: React.CSSProperties;
   panelState?: ToolcraftPanelState;
   panelType: ToolcraftPanelType;
   placement: PanelPlacement;

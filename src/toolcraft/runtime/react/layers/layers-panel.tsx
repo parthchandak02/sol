@@ -18,7 +18,7 @@ import {
   stopPanelHeaderButtonPointerDown,
 } from "@/toolcraft/ui";
 
-import type { ToolcraftPanelState } from "../../state/types";
+import type { ToolcraftPanelState, ToolcraftState } from "../../state/types";
 import {
   getToolcraftLayerDepth,
   getToolcraftVisibleLayerRows,
@@ -30,9 +30,11 @@ import {
 } from "./layers-panel-reorder";
 import { LayerRow } from "./layers-panel-row";
 import { PanelContainer } from "../panel-host/panel-host";
+import { useToolcraftPanelBinding } from "../panel-host/use-toolcraft-panel-binding";
 import type { PanelPlacement, PanelStateChange } from "../panel-host/panel-host-types";
 import { useLayersPanelDragController } from "./use-layers-panel-drag-controller";
-import { useToolcraft } from "../app-shell/use-toolcraft";
+import { useToolcraftCommittedSelector } from "../app-shell/toolcraft-selectors";
+import { useToolcraftDispatch } from "../app-shell/use-toolcraft";
 
 export type LayersPanelProps = {
   className?: string;
@@ -42,6 +44,12 @@ export type LayersPanelProps = {
   panelPlacement?: PanelPlacement;
   panelState?: ToolcraftPanelState;
 };
+
+const selectLayers = (state: ToolcraftState) => state.layers;
+const selectMediaAssets = (state: ToolcraftState) => state.mediaAssets;
+const selectSelectedLayerId = (state: ToolcraftState) => state.selectedLayerId;
+const selectLayersEnabled = (state: ToolcraftState) =>
+  state.schema.panels.layers;
 
 function cn(...classNames: Array<string | false | null | undefined>): string {
   return classNames.filter(Boolean).join(" ");
@@ -170,14 +178,24 @@ export function LayersPanel({
   panelPlacement,
   panelState,
 }: LayersPanelProps): React.JSX.Element | null {
-  const { dispatch, state } = useToolcraft();
-  const [internalCollapsed, setInternalCollapsed] = React.useState(false);
+  const dispatch = useToolcraftDispatch();
+  const layers = useToolcraftCommittedSelector(selectLayers);
+  const mediaAssets = useToolcraftCommittedSelector(selectMediaAssets);
+  const selectedLayerId = useToolcraftCommittedSelector(selectSelectedLayerId);
+  const layersEnabled = useToolcraftCommittedSelector(selectLayersEnabled);
+  const panelBinding = useToolcraftPanelBinding({
+    onPanelStateChange,
+    panelId: "layers",
+    panelState,
+  });
+  const resolvedPanelState = panelBinding.panelState;
   const listRef = React.useRef<HTMLUListElement | null>(null);
-  const collapsed = panelState?.collapsed ?? internalCollapsed;
+  const collapsed = resolvedPanelState.collapsed ?? false;
   const placement = panelPlacement ?? (framed ? "frame" : "surface");
-  const visibleLayers = React.useMemo(() => getToolcraftVisibleLayerRows(state.layers), [
-    state.layers,
-  ]);
+  const visibleLayers = React.useMemo(
+    () => getToolcraftVisibleLayerRows(layers),
+    [layers],
+  );
   const {
     dragState,
     dropTargetGroupId,
@@ -187,32 +205,28 @@ export function LayersPanel({
     insertTarget,
   } = useLayersPanelDragController({
     dispatch,
-    layers: state.layers,
+    layers,
     listRef,
     visibleLayers,
   });
 
-  if (!state.schema.panels.layers) {
+  if (!layersEnabled || resolvedPanelState.hidden) {
     return null;
   }
 
   const updateCollapsed = (nextCollapsed: boolean): void => {
-    if (panelState?.collapsed === undefined) {
-      setInternalCollapsed(nextCollapsed);
-    }
-
-    onPanelStateChange?.({ collapsed: nextCollapsed });
+    panelBinding.onPanelStateChange({ collapsed: nextCollapsed });
   };
 
   const addLayer = (): void => {
-    const selectedLayer = state.layers.find((layer) => layer.id === state.selectedLayerId);
+    const selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
     const parentGroupId =
       selectedLayer?.kind === "group" ? selectedLayer.id : selectedLayer?.parentGroupId;
     const insertIndex = selectedLayer
       ? selectedLayer.kind === "group"
-        ? getLayerSubtreeEndIndex(state.layers, selectedLayer.id)
-        : state.layers.findIndex((layer) => layer.id === selectedLayer.id) + 1
-      : state.layers.length;
+        ? getLayerSubtreeEndIndex(layers, selectedLayer.id)
+        : layers.findIndex((layer) => layer.id === selectedLayer.id) + 1
+      : layers.length;
 
     dispatch({
       insertIndex,
@@ -222,14 +236,14 @@ export function LayersPanel({
   };
 
   const addGroup = (): void => {
-    const selectedLayer = state.layers.find((layer) => layer.id === state.selectedLayerId);
+    const selectedLayer = layers.find((layer) => layer.id === selectedLayerId);
     const parentGroupId =
       selectedLayer?.kind === "group" ? selectedLayer.id : selectedLayer?.parentGroupId;
     const insertIndex = selectedLayer
       ? selectedLayer.kind === "group"
-        ? getLayerSubtreeEndIndex(state.layers, selectedLayer.id)
-        : state.layers.findIndex((layer) => layer.id === selectedLayer.id) + 1
-      : state.layers.length;
+        ? getLayerSubtreeEndIndex(layers, selectedLayer.id)
+        : layers.findIndex((layer) => layer.id === selectedLayer.id) + 1
+      : layers.length;
 
     dispatch({
       insertIndex,
@@ -265,12 +279,12 @@ export function LayersPanel({
             role="listbox"
           >
             {visibleLayers.map((layer) => {
-              const depth = getToolcraftLayerDepth(state.layers, layer);
+              const depth = getToolcraftLayerDepth(layers, layer);
               const dragHandlers = getRowDragHandlers(layer);
               const isDragging = dragState?.layerId === layer.id && dragState.dragging;
               const isReorderDragging = dragState?.dragging === true;
-              const isVisible = isToolcraftLayerVisibleInTree(state.layers, layer);
-              const hasMedia = state.mediaAssets.some((asset) => asset.layerId === layer.id);
+              const isVisible = isToolcraftLayerVisibleInTree(layers, layer);
+              const hasMedia = mediaAssets.some((asset) => asset.layerId === layer.id);
               const insertIndicatorTarget = insertTarget
                 ? getInsertIndicatorTarget(insertTarget)
                 : null;
@@ -291,11 +305,11 @@ export function LayersPanel({
                     dragState?.dragging === true &&
                     layer.kind === "group" &&
                     dropTargetGroupId === layer.id &&
-                    canMoveLayerIntoGroup(state.layers, dragState.layerId, layer.id)
+                    canMoveLayerIntoGroup(layers, dragState.layerId, layer.id)
                   }
                   isGroupHighlighted={highlightedGroupId === layer.id}
                   isReorderDragging={isReorderDragging}
-                  isSelected={state.selectedLayerId === layer.id}
+                  isSelected={selectedLayerId === layer.id}
                   isVisible={isVisible}
                   key={layer.id}
                   layer={layer}
@@ -338,8 +352,8 @@ export function LayersPanel({
 
   return (
     <PanelContainer
-      onPanelStateChange={onPanelStateChange}
-      panelState={panelState}
+      onPanelStateChange={panelBinding.onPanelStateChange}
+      panelState={resolvedPanelState}
       panelType="layers"
       placement={placement}
     >

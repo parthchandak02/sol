@@ -8,6 +8,10 @@ import {
   queueFontPickerPreviewLoadBatch,
 } from "./font-preview-loader";
 import { useHoverIntent } from "./use-hover-intent";
+import {
+  cancelBrowserAnimationFrame,
+  requestBrowserAnimationFrame,
+} from "../../primitives/browser-transport";
 
 export function useFontPickerPreviewPipeline({
   disabled,
@@ -57,7 +61,7 @@ export function useFontPickerPreviewPipeline({
 
   const cancelScheduledPreview = React.useCallback(() => {
     if (previewFrameRef.current !== null) {
-      window.cancelAnimationFrame(previewFrameRef.current);
+      cancelBrowserAnimationFrame(previewFrameRef.current);
       previewFrameRef.current = null;
     }
 
@@ -81,7 +85,7 @@ export function useFontPickerPreviewPipeline({
         return;
       }
 
-      previewFrameRef.current = window.requestAnimationFrame(() => {
+      previewFrameRef.current = requestBrowserAnimationFrame(() => {
         previewFrameRef.current = null;
         const scheduledFontId = pendingPreviewFontIdRef.current;
         pendingPreviewFontIdRef.current = null;

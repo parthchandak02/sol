@@ -149,7 +149,7 @@ export function getReferenceFeatureInventoryValidationResult({
       );
     }
 
-    if (!entry.browser || !entry.browserTestName.trim()) {
+    if (entry.browser === false) {
       errors.push(
         `${acceptanceId} must have browser coverage proving inventoried reference feature "${featureLabel}".`,
       );

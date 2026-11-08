@@ -1,12 +1,13 @@
 import type {
   ResolvedToolcraftAppSchema,
-  ToolcraftControlSchema,
+  ResolvedToolcraftControlSchema,
   ToolcraftTimelineMode,
 } from "@/toolcraft/runtime";
 
 import { isRuntimeSetupControlTarget } from "./runtime-setup";
 import type {
   ToolcraftComponentAcceptance,
+  ToolcraftProductReadiness,
   ToolcraftVisibleControl,
 } from "./types";
 
@@ -14,12 +15,13 @@ export type ToolcraftControlAcceptanceContext = {
   acceptance: readonly ToolcraftComponentAcceptance[];
   controls: readonly ToolcraftVisibleControl[];
   layersEnabled: boolean;
+  productReadiness: ToolcraftProductReadiness;
   schema: ResolvedToolcraftAppSchema;
   timelineMode: ToolcraftTimelineMode | null;
 };
 
 export type ToolcraftControlRuleContext = {
-  control: ToolcraftControlSchema;
+  control: ResolvedToolcraftControlSchema;
   controlId: string;
   controlTargets: ReadonlySet<string>;
   label: string;
@@ -32,12 +34,29 @@ export function getControlAcceptanceByTarget(
   acceptance: readonly ToolcraftComponentAcceptance[],
 ): ReadonlyMap<string, ToolcraftComponentAcceptance> {
   return new Map(
-    acceptance.flatMap((entry) =>
-      entry.kind === "control" && entry.target
-        ? [[entry.target, entry] as const]
-        : [],
-    ),
+    acceptance.flatMap((entry) => {
+      const target = getControlAcceptanceTarget(entry);
+      return target ? [[target, entry] as const] : [];
+    }),
   );
+}
+
+export function getControlAcceptanceTarget(
+  entry: ToolcraftComponentAcceptance,
+): string | null {
+  if (entry.kind === "control" && entry.target) {
+    return entry.target;
+  }
+
+  if (
+    entry.kind === "canvas-handle" &&
+    entry.componentType === "orientationGizmo" &&
+    entry.canvasHandle?.writesTarget
+  ) {
+    return entry.canvasHandle.writesTarget;
+  }
+
+  return null;
 }
 
 export function getControlTargets(
@@ -62,7 +81,9 @@ export function getAcceptanceEntryTargetErrors({
       !controlTargets.has(entry.target) &&
       !isRuntimeSetupControlTarget(entry.target)
     ) {
-      errors.push(`${entry.id} points to missing control target ${entry.target}.`);
+      errors.push(
+        `${entry.id} points to missing control target ${entry.target}.`,
+      );
     }
   }
 

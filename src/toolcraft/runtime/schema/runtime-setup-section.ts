@@ -1,21 +1,38 @@
+import { createWorkspaceBackgroundControl } from "./workspace-background-control";
 import {
   getToolcraftCanvasAspectRatioPreset,
   getToolcraftCanvasAspectRatioPresetBySize,
 } from "./canvas-aspect-ratio-presets";
+import { normalizeToolcraftAdditionalValueTargets } from "./additional-value-targets";
+import { assertToolcraftProductTargetNamespace } from "./collection-actions";
+import { registerToolcraftInternalControlSection } from "./controls-panel-section-id";
 import { toolcraftRuntimeSetupSectionTitle } from "./runtime-section-titles";
-import { toolcraftTimelinePanelExtendedTarget } from "./runtime-targets";
+import {
+  toolcraftCanvasInfinityTarget,
+  toolcraftCanvasRotationLockedTarget,
+  toolcraftTimelinePanelExtendedTarget,
+} from "./runtime-targets";
+import {
+  toolcraftOutputBackgroundToggleTarget,
+  type ToolcraftRuntimeSetupBackgroundControls,
+} from "./runtime-setup-background";
+import {
+  getToolcraftSliderStepPositionCount,
+  getToolcraftVisualDiscreteSliderMarkerIssue,
+} from "./slider-marker-policy";
 import type {
-  ResolvedToolcraftAppSchema,
+  ResolvedToolcraftAppIdentity,
   ResolvedToolcraftSettingsTransferSchema,
   ResolvedToolcraftTimelinePanelSchema,
-  ToolcraftAppSchema,
+  ToolcraftControlsPanelSchema,
   ToolcraftCanvasSize,
   ToolcraftControlLayoutGroupSchema,
   ToolcraftControlSchema,
   ToolcraftControlSectionSchema,
-  ToolcraftControlsPanelSchema,
   ToolcraftSettingsTransferSchema,
 } from "./types";
+import type { ResolvedToolcraftAppSchema } from "./resolved-app-schema";
+import { getToolcraftDefaultCanvasMode } from "../state/canvas-frame";
 
 const canvasSizeControlTargets = {
   height: "canvas.size.height",
@@ -23,17 +40,20 @@ const canvasSizeControlTargets = {
 } as const;
 const canvasAspectRatioTarget = "canvas.aspectRatio";
 const canvasRenderScaleTarget = "canvas.renderScale";
-const settingsTransferTarget = "runtime.settingsTransfer";
+const finiteCanvasCondition = Object.freeze({
+  equals: false,
+  target: toolcraftCanvasInfinityTarget,
+});
+const alwaysApplicable = Object.freeze({ mode: "always" as const });
+const finiteCanvasApplicability = Object.freeze({
+  all: [finiteCanvasCondition],
+  mode: "conditional" as const,
+});
 
-function slugifySettingsTransferAppId(value: string | undefined): string {
-  const slug = value
-    ?.trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return slug || "toolcraft-app";
-}
+type RuntimeSetupControlGroup = {
+  controls: ToolcraftControlSectionSchema["controls"];
+  layoutGroups: readonly ToolcraftControlLayoutGroupSchema[];
+};
 
 function getSettingsTransferMode(
   settingsTransfer: ToolcraftSettingsTransferSchema | undefined,
@@ -53,32 +73,6 @@ function getSettingsTransferObject(
     : undefined;
 }
 
-function getSettingsTransferAppId({
-  controls,
-  persistence,
-  settingsTransfer,
-}: {
-  controls: ToolcraftControlsPanelSchema | undefined;
-  persistence: ResolvedToolcraftAppSchema["persistence"];
-  settingsTransfer: ToolcraftSettingsTransferSchema | undefined;
-}): string {
-  const objectSchema = getSettingsTransferObject(settingsTransfer);
-
-  if (objectSchema?.appId) {
-    return slugifySettingsTransferAppId(objectSchema.appId);
-  }
-
-  if (persistence.storage === "localStorage") {
-    const match = /^toolcraft:(.+):state:v\d+$/u.exec(persistence.key);
-
-    if (match?.[1]) {
-      return slugifySettingsTransferAppId(match[1]);
-    }
-  }
-
-  return slugifySettingsTransferAppId(controls?.title);
-}
-
 function getSettingsTransferFileName({
   appId,
   settingsTransfer,
@@ -89,31 +83,36 @@ function getSettingsTransferFileName({
   const explicitFileName = getSettingsTransferObject(settingsTransfer)?.fileName?.trim();
 
   if (explicitFileName) {
-    return explicitFileName.endsWith(".json")
-      ? explicitFileName
-      : `${explicitFileName}.json`;
+    return explicitFileName.endsWith(".json") ? explicitFileName : `${explicitFileName}.json`;
   }
 
   return `${appId}-settings.json`;
 }
 
 export function resolveToolcraftSettingsTransfer({
+  collectionSelectionTargets = [],
   controls,
-  persistence,
+  identity,
   settingsTransfer,
 }: {
+  collectionSelectionTargets?: readonly string[];
   controls: ToolcraftControlsPanelSchema | undefined;
-  persistence: ResolvedToolcraftAppSchema["persistence"];
+  identity: ResolvedToolcraftAppIdentity;
   settingsTransfer: ToolcraftSettingsTransferSchema | undefined;
 }): ResolvedToolcraftSettingsTransferSchema {
   const mode = getSettingsTransferMode(settingsTransfer);
-  const appId = getSettingsTransferAppId({
-    controls,
-    persistence,
-    settingsTransfer,
-  });
+  const appId = identity.id;
+
+  const additionalValueTargets = normalizeToolcraftAdditionalValueTargets([
+    ...(getSettingsTransferObject(settingsTransfer)?.additionalValueTargets ?? []),
+    ...collectionSelectionTargets,
+  ]);
+  for (const target of additionalValueTargets) {
+    assertToolcraftProductTargetNamespace(target, `settings additional value target "${target}"`);
+  }
 
   return {
+    additionalValueTargets,
     appId,
     enabled: Boolean(controls),
     fileName: getSettingsTransferFileName({ appId, settingsTransfer }),
@@ -145,8 +144,7 @@ function getCanvasAspectRatioDefaultValue(size: ToolcraftCanvasSize): {
   const height = Math.max(1, Math.round(size.height / divisor));
   const value = `${width}:${height}`;
   const preset =
-    getToolcraftCanvasAspectRatioPreset(value) ??
-    getToolcraftCanvasAspectRatioPresetBySize(size);
+    getToolcraftCanvasAspectRatioPreset(value) ?? getToolcraftCanvasAspectRatioPresetBySize(size);
 
   return {
     height: preset?.ratioHeight ?? height,
@@ -163,24 +161,64 @@ function createRenderScaleControl(
     return undefined;
   }
 
-  return {
+  const control = {
+    applicability: alwaysApplicable,
     defaultValue: canvas.renderScale.defaultValue,
     description:
       "Increases raster canvas backing resolution without changing the visible output size.",
     label: "Resolution scale",
-    markerCount:
-      Math.floor(
-        (canvas.renderScale.max - canvas.renderScale.min) / canvas.renderScale.step,
-      ) + 1,
     max: canvas.renderScale.max,
     min: canvas.renderScale.min,
-    performanceReason:
-      "Resolution scale changes raster, Canvas, WebGL, or WebGPU backing pixels.",
+    performanceReason: "Resolution scale changes raster, Canvas, WebGL, or WebGPU backing pixels.",
     performanceRole: "workload",
     step: canvas.renderScale.step,
     target: canvasRenderScaleTarget,
     type: "slider",
+  } satisfies ToolcraftControlSchema;
+  const visualDiscreteControl = {
+    ...control,
+    variant: "discrete" as const,
+  };
+  const markerCount = getToolcraftSliderStepPositionCount(control);
+  const markerIssue = getToolcraftVisualDiscreteSliderMarkerIssue(visualDiscreteControl);
+
+  if (markerCount === undefined || markerIssue !== null) {
+    return {
+      ...control,
+      variant: "continuous",
+    } satisfies ToolcraftControlSchema;
+  }
+
+  return {
+    ...control,
+    markerCount,
     variant: "discrete",
+  } satisfies ToolcraftControlSchema;
+}
+
+function createInfinityCanvasControl(
+  canvas: ResolvedToolcraftAppSchema["canvas"],
+  background: ToolcraftRuntimeSetupBackgroundControls | undefined,
+): ToolcraftControlSchema | undefined {
+  if (!canvas.enabled || canvas.sizing.mode !== "editable-output") {
+    return undefined;
+  }
+
+  return {
+    applicability: alwaysApplicable,
+    defaultValue: getToolcraftDefaultCanvasMode(canvas) === "infinite",
+    ...(background && canvas.infinityBackgroundPolicy !== "optional"
+      ? {
+          disabledWhen: {
+            equals: false,
+            target: toolcraftOutputBackgroundToggleTarget,
+          },
+        }
+      : {}),
+    label: "Infinity canvas",
+    orderRole: "input",
+    target: toolcraftCanvasInfinityTarget,
+    type: "switch",
   };
 }
 
@@ -192,28 +230,92 @@ function createTimelineExtendedControl(
   }
 
   return {
+    applicability: alwaysApplicable,
     defaultValue: false,
-    description:
-      "Shows the extended runtime timeline with scrubber, duration, loop, and keyframe controls; compact mode keeps only Play visible.",
     label: "Timeline",
     target: toolcraftTimelinePanelExtendedTarget,
     type: "switch",
   };
 }
 
-function createEditableCanvasControls(
+function createRuntimeSetupBackgroundControls({
+  background,
+  canvas,
+}: {
+  background: ToolcraftRuntimeSetupBackgroundControls | undefined;
+  canvas: ResolvedToolcraftAppSchema["canvas"];
+}): RuntimeSetupControlGroup {
+  const infinityCanvasControl = createInfinityCanvasControl(canvas, background);
+  const workspaceBackground = canvas.enabled ? createWorkspaceBackgroundControl() : undefined;
+  const includeBackgroundControl = background
+    ? {
+        ...background.include,
+        description: undefined,
+        label: "Background",
+      }
+    : undefined;
+  const backgroundColorControl = background
+    ? {
+        ...background.color,
+        label: "Background color",
+      }
+    : undefined;
+
+  return {
+    controls: {
+      ...(includeBackgroundControl
+        ? {
+            includeBackground: {
+              ...includeBackgroundControl,
+              applicability: alwaysApplicable,
+            },
+          }
+        : {}),
+      ...(infinityCanvasControl ? { infinityCanvas: infinityCanvasControl } : {}),
+      ...(backgroundColorControl
+        ? {
+            background: {
+              ...backgroundColorControl,
+              applicability: alwaysApplicable,
+            },
+          }
+        : {}),
+      ...(workspaceBackground ? { workspaceBackground } : {}),
+    },
+    layoutGroups: [
+      ...(includeBackgroundControl && infinityCanvasControl
+        ? [
+            {
+              columns: 2 as const,
+              controls: ["includeBackground", "infinityCanvas"],
+              layout: "inline" as const,
+            },
+          ]
+        : []),
+      ...(backgroundColorControl && workspaceBackground
+        ? [
+            {
+              columns: 2 as const,
+              controls: ["background", "workspaceBackground"],
+              layout: "inline" as const,
+            },
+          ]
+        : []),
+    ],
+  };
+}
+
+function createCanvasControls(
   canvas: ResolvedToolcraftAppSchema["canvas"],
-): {
-  controls: ToolcraftControlSectionSchema["controls"];
-  layoutGroups?: readonly ToolcraftControlLayoutGroupSchema[];
-} {
+): RuntimeSetupControlGroup {
   if (!canvas.enabled || canvas.sizing.mode !== "editable-output") {
-    return { controls: {} };
+    return { controls: {}, layoutGroups: [] };
   }
 
   return {
     controls: {
       canvasAspectRatio: {
+        applicability: finiteCanvasApplicability,
         defaultValue: getCanvasAspectRatioDefaultValue(canvas.size),
         label: "Aspect ratio",
         orderRole: "input",
@@ -223,6 +325,7 @@ function createEditableCanvasControls(
         type: "aspectRatio",
       },
       canvasWidth: {
+        applicability: finiteCanvasApplicability,
         defaultValue: canvas.size.width,
         label: "Canvas width",
         orderRole: "input",
@@ -232,6 +335,7 @@ function createEditableCanvasControls(
         type: "text",
       },
       canvasHeight: {
+        applicability: finiteCanvasApplicability,
         defaultValue: canvas.size.height,
         label: "Canvas height",
         orderRole: "input",
@@ -252,31 +356,62 @@ function createEditableCanvasControls(
 }
 
 export function createToolcraftRuntimeSetupSection({
+  background,
   canvas,
-  settingsTransfer,
+  hasOrientationGizmo,
   timeline,
 }: {
+  background: ToolcraftRuntimeSetupBackgroundControls | undefined;
   canvas: ResolvedToolcraftAppSchema["canvas"];
+  hasOrientationGizmo: boolean;
   settingsTransfer: ResolvedToolcraftSettingsTransferSchema;
   timeline: ResolvedToolcraftTimelinePanelSchema | undefined;
 }): ToolcraftControlSectionSchema {
-  const editableCanvas = createEditableCanvasControls(canvas);
+  const backgroundControls = createRuntimeSetupBackgroundControls({
+    background,
+    canvas,
+  });
+  const canvasControls = createCanvasControls(canvas);
   const renderScaleControl = createRenderScaleControl(canvas);
   const timelineExtendedControl = createTimelineExtendedControl(timeline);
 
-  return {
+  const section: ToolcraftControlSectionSchema & { id: string } = {
     controls: {
-      settingsTransfer: {
-        label: false,
-        target: settingsTransferTarget,
-        type: "settingsTransfer",
-      },
-      ...editableCanvas.controls,
+      ...backgroundControls.controls,
+      ...canvasControls.controls,
       ...(renderScaleControl ? { canvasRenderScale: renderScaleControl } : {}),
       ...(timelineExtendedControl ? { timelineExtended: timelineExtendedControl } : {}),
+      ...(hasOrientationGizmo && canvas.enabled
+        ? {
+            rotationLocked: {
+              applicability: alwaysApplicable,
+              defaultValue: false,
+              description:
+                "Prevents rotation with the gizmo or by dragging the model. Pan and zoom remain available.",
+              label: "Lock rotation",
+              target: toolcraftCanvasRotationLockedTarget,
+              type: "switch" as const,
+            },
+          }
+        : {}),
     },
+    id: "runtime.setup",
     layout: "standalone",
-    layoutGroups: editableCanvas.layoutGroups,
+    layoutGroups: [
+      ...backgroundControls.layoutGroups,
+      ...canvasControls.layoutGroups,
+      ...(timelineExtendedControl && hasOrientationGizmo && canvas.enabled
+        ? [
+            {
+              columns: 2 as const,
+              controls: ["timelineExtended", "rotationLocked"],
+              layout: "inline" as const,
+            },
+          ]
+        : []),
+    ],
     title: toolcraftRuntimeSetupSectionTitle,
   };
+
+  return registerToolcraftInternalControlSection(section);
 }

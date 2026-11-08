@@ -17,16 +17,20 @@ import {
   panelHostConfig,
   panelSnapAnimation,
 } from "./panel-host-config";
-import { resolvePanelSnapPosition } from "./panel-host-geometry";
+import {
+  clampPanelPlacementToViewport,
+  resolvePanelSnapPlacement,
+} from "./panel-host-geometry";
 import type {
   ToolcraftPanelHostProps,
   PanelContainerProps,
   PanelHostProps,
   PanelPoint,
+  PanelSnapPlacement,
   PanelStageProps,
   PanelViewport,
 } from "./panel-host-types";
-import { useToolcraft } from "../app-shell/use-toolcraft";
+import { useToolcraftPanelBinding } from "./use-toolcraft-panel-binding";
 
 function cn(...classNames: Array<string | false | null | undefined>): string {
   return classNames.filter(Boolean).join(" ");
@@ -81,11 +85,21 @@ function animatePanelMotionValue(value: MotionValue<number>, target: number): vo
 }
 
 function usePanelSnapControls({
+  onPlacementChange,
   onPositionChange,
   onResetPosition,
   position = { x: 0, y: 0 },
   snap,
-}: Pick<PanelHostProps, "onPositionChange" | "onResetPosition" | "position" | "snap">) {
+  snapEdge,
+}: Pick<
+  PanelHostProps,
+  | "onPlacementChange"
+  | "onPositionChange"
+  | "onResetPosition"
+  | "position"
+  | "snap"
+  | "snapEdge"
+>) {
   const panelRef = React.useRef<HTMLDivElement>(null);
   const x = useMotionValue(position.x);
   const y = useMotionValue(position.y);
@@ -95,8 +109,25 @@ function usePanelSnapControls({
     animatePanelMotionValue(y, position.y);
   }, [position.x, position.y, x, y]);
 
+  const publishPlacement = React.useCallback(
+    (placement: PanelSnapPlacement): void => {
+      onPositionChange?.(placement.offset);
+      onPlacementChange?.(placement);
+    },
+    [onPlacementChange, onPositionChange],
+  );
+
+  const setPlacement = React.useCallback(
+    (placement: PanelSnapPlacement): void => {
+      animatePanelMotionValue(x, placement.offset.x);
+      animatePanelMotionValue(y, placement.offset.y);
+      publishPlacement(placement);
+    },
+    [publishPlacement, x, y],
+  );
+
   const publishPosition = (nextPosition: PanelPoint): void => {
-    onPositionChange?.(nextPosition);
+    publishPlacement({ offset: nextPosition, snapEdge: undefined });
   };
 
   const publishCurrentPosition = (): void => {
@@ -118,7 +149,7 @@ function usePanelSnapControls({
 
     const rect = panel.getBoundingClientRect();
     const offset = { x: x.get(), y: y.get() };
-    const target = resolvePanelSnapPosition({
+    const target = resolvePanelSnapPlacement({
       dimensions: { height: rect.height, width: rect.width },
       edges: snap.edges,
       margin: snap.margin,
@@ -134,21 +165,66 @@ function usePanelSnapControls({
     }
 
     const nextPosition = {
-      x: target.x - (rect.left - offset.x),
-      y: target.y - (rect.top - offset.y),
+      x: target.offset.x - (rect.left - offset.x),
+      y: target.offset.y - (rect.top - offset.y),
     };
 
-    animatePanelMotionValue(x, nextPosition.x);
-    animatePanelMotionValue(y, nextPosition.y);
-    publishPosition(nextPosition);
+    setPlacement({ offset: nextPosition, snapEdge: target.snapEdge });
   };
 
   const resetPosition = (): void => {
-    animatePanelMotionValue(x, 0);
-    animatePanelMotionValue(y, 0);
-    publishPosition({ x: 0, y: 0 });
+    setPlacement({ offset: { x: 0, y: 0 }, snapEdge: undefined });
     onResetPosition?.();
   };
+
+  React.useLayoutEffect(() => {
+    const panel = panelRef.current;
+
+    if (!panel) {
+      return undefined;
+    }
+
+    const clampRestoredPlacement = (): void => {
+      const rect = panel.getBoundingClientRect();
+
+      if (rect.width <= 0 || rect.height <= 0) {
+        return;
+      }
+
+      if (x.get() === 0 && y.get() === 0 && snapEdge === undefined) {
+        return;
+      }
+
+      const currentPlacement = {
+        offset: { x: x.get(), y: y.get() },
+        ...(snapEdge ? { snapEdge } : {}),
+      };
+      const nextPlacement = clampPanelPlacementToViewport({
+        dimensions: { height: rect.height, width: rect.width },
+        margin: snap?.margin,
+        origin: {
+          x: rect.left - currentPlacement.offset.x,
+          y: rect.top - currentPlacement.offset.y,
+        },
+        placement: currentPlacement,
+        viewport: getPanelVisualViewport(),
+      });
+
+      if (
+        nextPlacement.offset.x !== currentPlacement.offset.x ||
+        nextPlacement.offset.y !== currentPlacement.offset.y
+      ) {
+        setPlacement(nextPlacement);
+      }
+    };
+
+    clampRestoredPlacement();
+    window.addEventListener("resize", clampRestoredPlacement);
+
+    return () => {
+      window.removeEventListener("resize", clampRestoredPlacement);
+    };
+  }, [setPlacement, snap?.margin, snapEdge, x, y]);
 
   return { handleDragEnd, panelRef, resetPosition, x, y };
 }
@@ -159,11 +235,13 @@ export function PanelHost({
   dragMode,
   innerClassName,
   onPositionChange,
+  onPlacementChange,
   onResetPosition,
   panelId,
   panelType,
   position,
   snap,
+  snapEdge,
   style,
 }: PanelHostProps): React.JSX.Element {
   const config = panelHostConfig[panelType];
@@ -179,9 +257,11 @@ export function PanelHost({
     y,
   } = usePanelSnapControls({
     onPositionChange,
+    onPlacementChange,
     onResetPosition,
     position,
     snap: resolvedSnap,
+    snapEdge,
   });
   const [isDragging, setIsDragging] = React.useState(false);
 
@@ -232,6 +312,9 @@ export function PanelHost({
         data-dragging={isDragging ? "true" : "false"}
         data-drag-mode={resolvedDragMode}
         data-panel-id={resolvedPanelId}
+        data-panel-offset-x={position?.x ?? 0}
+        data-panel-offset-y={position?.y ?? 0}
+        data-panel-snap-edge={snapEdge}
         data-panel-type={panelType}
         data-slot="toolcraft-runtime-panel-host"
         data-snap-edges={resolvedSnap?.edges.join(" ")}
@@ -255,28 +338,32 @@ export function PanelHost({
 }
 
 export function ToolcraftPanelHost({
+  onPlacementChange,
   onPositionChange,
   onResetPosition,
   panelType,
   position,
+  snapEdge,
   ...props
 }: ToolcraftPanelHostProps): React.JSX.Element {
-  const { dispatch, state } = useToolcraft();
-  const panelState = state.panels[panelType];
+  const panelBinding = useToolcraftPanelBinding({ panelId: panelType });
 
   return (
     <PanelHost
       {...props}
+      onPlacementChange={(placement) => {
+        onPlacementChange?.(placement);
+        panelBinding.onPanelStateChange(placement);
+      }}
       onPositionChange={(offset) => {
         onPositionChange?.(offset);
-        dispatch({ offset, panelId: panelType, type: "panels.setOffset" });
       }}
       onResetPosition={() => {
         onResetPosition?.();
-        dispatch({ panelId: panelType, type: "panels.resetOffset" });
       }}
       panelType={panelType}
-      position={position ?? panelState.offset}
+      position={position ?? panelBinding.panelState.offset}
+      snapEdge={snapEdge ?? panelBinding.panelState.snapEdge}
     />
   );
 }
@@ -306,6 +393,7 @@ export function PanelContainer({
   dragMode,
   onPanelStateChange,
   panelClassName,
+  panelStyle,
   panelState,
   panelType,
   placement,
@@ -321,11 +409,13 @@ export function PanelContainer({
     return (
       <PanelHost
         className={panelClassName}
+        style={panelStyle}
         dragMode={dragMode}
-        onPositionChange={(offset) => onPanelStateChange?.({ offset })}
+        onPlacementChange={onPanelStateChange}
         panelType={panelType}
         position={panelState?.offset}
         snap={{ edges: config.snapEdges }}
+        snapEdge={panelState?.snapEdge}
       >
         {children}
       </PanelHost>
@@ -340,11 +430,13 @@ export function PanelContainer({
     >
       <PanelHost
         className={panelClassName}
+        style={panelStyle}
         dragMode={dragMode}
-        onPositionChange={(offset) => onPanelStateChange?.({ offset })}
+        onPlacementChange={onPanelStateChange}
         panelType={panelType}
         position={panelState?.offset}
         snap={{ edges: config.snapEdges }}
+        snapEdge={panelState?.snapEdge}
       >
         {children}
       </PanelHost>

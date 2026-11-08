@@ -24,6 +24,11 @@ export type ToolcraftMediaLifecycleObservation = {
   outputSignature: string;
 };
 
+export type ToolcraftPersistenceEvidenceOptions =
+  ToolcraftSemanticEvidenceOptions & {
+    assertRestoredOutput?: () => Promise<void>;
+  };
+
 export type ToolcraftViewportObservation = {
   offsetX: number;
   offsetY: number;
@@ -82,7 +87,7 @@ export async function expectToolcraftPersistenceState<T>(
   mutateThroughUi: ToolcraftBrowserAction,
   reloadPage: ToolcraftBrowserAction<"reload">,
   expectedAfterReload: T,
-  options: ToolcraftSemanticEvidenceOptions,
+  options: ToolcraftPersistenceEvidenceOptions,
 ): Promise<T> {
   assertToolcraftBrowserProofSession(
     observePersistedOutcome,
@@ -112,6 +117,7 @@ export async function expectToolcraftPersistenceState<T>(
     expected,
     createToolcraftSemanticTransitionOptions(message, options),
   );
+  await options.assertRestoredOutput?.();
   await attachToolcraftBrowserRuntimeEvidence({
     evidenceType: "persistence-state",
     requirementId: options.requirementId,

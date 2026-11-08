@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import {
+  cancelBrowserAnimationFrame,
+  requestBrowserAnimationFrame,
+} from "../../primitives/browser-transport";
 
 export function useSurfacePreview(emitChange: (hex: string) => void) {
   const pendingSurfacePreviewHexRef = useRef<string | null>(null);
@@ -8,7 +12,7 @@ export function useSurfacePreview(emitChange: (hex: string) => void) {
 
   const clearScheduledSurfacePreview = useCallback(() => {
     if (surfacePreviewRafRef.current === null) return;
-    window.cancelAnimationFrame(surfacePreviewRafRef.current);
+    cancelBrowserAnimationFrame(surfacePreviewRafRef.current);
     surfacePreviewRafRef.current = null;
   }, []);
 
@@ -24,7 +28,7 @@ export function useSurfacePreview(emitChange: (hex: string) => void) {
       pendingSurfacePreviewHexRef.current = nextHex;
       if (surfacePreviewRafRef.current !== null) return;
 
-      surfacePreviewRafRef.current = window.requestAnimationFrame(() => {
+      surfacePreviewRafRef.current = requestBrowserAnimationFrame(() => {
         surfacePreviewRafRef.current = null;
         const scheduledHex = pendingSurfacePreviewHexRef.current;
         pendingSurfacePreviewHexRef.current = null;

@@ -1,6 +1,6 @@
 import type {
   ResolvedToolcraftAppSchema,
-  ToolcraftControlSchema,
+  ResolvedToolcraftControlSchema,
 } from "@/toolcraft/runtime";
 
 import { isToolcraftProductSectionControl } from "./controls";
@@ -12,19 +12,21 @@ import {
 } from "./semantic";
 
 export type ToolcraftControlLayoutControlEntry = {
-  control: ToolcraftControlSchema;
+  control: ResolvedToolcraftControlSchema;
   controlId: string;
   loosePrefix: string | null;
   sectionLabel: string;
+  sectionId: string;
   sectionTitle: string | undefined;
 };
 
 export type ToolcraftControlLayoutSectionFact = {
-  controls: readonly [string, ToolcraftControlSchema][];
+  owner: "runtime" | "product";
+  controls: readonly [string, ResolvedToolcraftControlSchema][];
   sectionLabel: string;
+  sectionId: string;
   sectionLoosePrefixes: ReadonlySet<string>;
   sectionTitle: string | undefined;
-  semanticClusters: ReadonlySet<string>;
 };
 
 export type ToolcraftControlLayoutFacts = {
@@ -32,33 +34,23 @@ export type ToolcraftControlLayoutFacts = {
   controlsByTarget: ReadonlyMap<string, ToolcraftControlLayoutControlEntry>;
   loosePrefixSections: ReadonlyMap<string, ReadonlySet<string>>;
   sectionTitleCounts: ReadonlyMap<string, { count: number; label: string }>;
+  sectionLabelsById: ReadonlyMap<string, string>;
   sections: readonly ToolcraftControlLayoutSectionFact[];
   strictPrefixSections: ReadonlyMap<string, ReadonlySet<string>>;
   visibleControls: readonly ToolcraftControlLayoutControlEntry[];
 };
 
-function getToolcraftControlSemanticCluster(
-  control: ToolcraftControlSchema,
-): string {
-  return (
-    control.semanticGroup?.trim() ||
-    getToolcraftLooseTargetPrefix(control.target) ||
-    control.orderRole ||
-    control.type
-  );
-}
-
 function addSectionToPrefixMap(
   sectionMap: Map<string, Set<string>>,
   prefix: string | null,
-  sectionLabel: string,
+  sectionId: string,
 ): void {
   if (!prefix) {
     return;
   }
 
   const sections = sectionMap.get(prefix) ?? new Set<string>();
-  sections.add(sectionLabel);
+  sections.add(sectionId);
   sectionMap.set(prefix, sections);
 }
 
@@ -80,6 +72,7 @@ function updateSectionTitleCounts(
 
 export function buildToolcraftControlLayoutFacts(
   schema: ResolvedToolcraftAppSchema,
+  productModeTargets: ReadonlySet<string> = new Set(),
 ): ToolcraftControlLayoutFacts {
   const sections: ToolcraftControlLayoutSectionFact[] = [];
   const visibleControls: ToolcraftControlLayoutControlEntry[] = [];
@@ -88,6 +81,7 @@ export function buildToolcraftControlLayoutFacts(
   const colorSectionLoosePrefixes = new Map<string, string>();
   const sectionTitleCounts = new Map<string, { count: number; label: string }>();
   const controlsByTarget = new Map<string, ToolcraftControlLayoutControlEntry>();
+  const sectionLabelsById = new Map<string, string>();
 
   for (const [sectionIndex, section] of (schema.panels.controls?.sections ?? []).entries()) {
     const sectionTitle = section.title?.trim();
@@ -100,15 +94,14 @@ export function buildToolcraftControlLayoutFacts(
       continue;
     }
 
-    updateSectionTitleCounts(sectionTitleCounts, sectionTitle);
+    const owner = section.id.startsWith("runtime.") ? "runtime" : "product";
+    if (owner === "product") updateSectionTitleCounts(sectionTitleCounts, sectionTitle);
+    sectionLabelsById.set(section.id, sectionLabel);
 
     const sectionLoosePrefixes = new Set(
       controls
-        .map(([, control]) => getToolcraftLooseTargetPrefix(control.target))
+        .map(([, control]) => productModeTargets.has(control.target) ? null : getToolcraftLooseTargetPrefix(control.target))
         .filter((prefix): prefix is string => Boolean(prefix)),
-    );
-    const semanticClusters = new Set(
-      controls.map(([, control]) => getToolcraftControlSemanticCluster(control)),
     );
     const isColorOnlySection = controls.every(
       ([, control]) => control.type === "color",
@@ -116,26 +109,30 @@ export function buildToolcraftControlLayoutFacts(
 
     sections.push({
       controls,
+      owner,
       sectionLabel,
+      sectionId: section.id,
       sectionLoosePrefixes,
       sectionTitle,
-      semanticClusters,
     });
 
     for (const [controlId, control] of controls) {
-      const strictPrefix = getToolcraftStrictTargetPrefix(control.target);
+      // Application selectors govern entities; their target spelling is not entity ownership.
+      const isProductMode = productModeTargets.has(control.target);
+      const strictPrefix = isProductMode ? null : getToolcraftStrictTargetPrefix(control.target);
       const entry: ToolcraftControlLayoutControlEntry = {
         control,
         controlId,
-        loosePrefix: getToolcraftLooseTargetPrefix(control.target),
+        loosePrefix: isProductMode ? null : getToolcraftLooseTargetPrefix(control.target),
         sectionLabel,
+        sectionId: section.id,
         sectionTitle,
       };
 
       visibleControls.push(entry);
       controlsByTarget.set(control.target, entry);
-      addSectionToPrefixMap(strictPrefixSections, strictPrefix, sectionLabel);
-      addSectionToPrefixMap(loosePrefixSections, entry.loosePrefix, sectionLabel);
+      addSectionToPrefixMap(strictPrefixSections, strictPrefix, section.id);
+      addSectionToPrefixMap(loosePrefixSections, entry.loosePrefix, section.id);
 
       if (
         control.type === "color" &&
@@ -152,6 +149,7 @@ export function buildToolcraftControlLayoutFacts(
     controlsByTarget,
     loosePrefixSections,
     sectionTitleCounts,
+    sectionLabelsById,
     sections,
     strictPrefixSections,
     visibleControls,

@@ -1,18 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-} from 'react';
-import { PanelSurface } from '@/toolcraft/ui';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { PanelHoverSurface } from '@/toolcraft/ui/components/panel/internal-panel-hover';
 import { motion } from 'motion/react';
 
 import type {
   ToolcraftPanelState,
+  ToolcraftState,
   ToolcraftTimelineKeyframeEasing,
   ToolcraftTimelineKeyframeGroup,
 } from '../../state/types';
@@ -39,8 +34,14 @@ import {
 import { timelineKeyframeRowHeightPx } from './timeline-panel-layout';
 import { useTimelineClock, useTimelineScrubber } from './timeline-playback-hooks';
 import { PanelContainer } from '../panel-host/panel-host';
+import { useToolcraftPanelBinding } from '../panel-host/use-toolcraft-panel-binding';
 import type { PanelPlacement, PanelStateChange } from '../panel-host/panel-host-types';
-import { useToolcraft } from '../app-shell/use-toolcraft';
+import { useToolcraftStore } from '../app-shell/toolcraft-store-context';
+import {
+  useToolcraftCommittedSelector,
+  useToolcraftDependencySelector,
+} from '../app-shell/toolcraft-selectors';
+import { useToolcraftDispatch } from '../app-shell/use-toolcraft';
 
 type TimelinePanelProps = {
   className?: string;
@@ -76,6 +77,12 @@ const timelinePanelResizeTransition = {
   duration: 0.16,
   ease: [0.22, 1, 0.36, 1],
 } as const;
+const playbackDependencies = [{ kind: 'playback' }] as const;
+const selectSchema = (state: ToolcraftState) => state.schema;
+const selectMediaAssets = (state: ToolcraftState) => state.mediaAssets;
+const selectCommittedTimeline = (state: ToolcraftState) => state.timeline;
+const selectCurrentTimeSeconds = (state: ToolcraftState) =>
+  state.timeline.currentTimeSeconds;
 
 function getTimelinePanelExpandedSize(keyframeGroups: readonly ToolcraftTimelineKeyframeGroup[]): {
   height: number;
@@ -106,24 +113,38 @@ export function TimelinePanel({
   panelState,
   variant = 'extended',
 }: TimelinePanelProps): React.JSX.Element | null {
-  const { dispatch, state } = useToolcraft();
+  const dispatch = useToolcraftDispatch();
+  const panelBinding = useToolcraftPanelBinding({
+    onPanelStateChange,
+    panelId: 'timeline',
+    panelState,
+  });
+  const resolvedPanelState = panelBinding.panelState;
+  const store = useToolcraftStore();
+  const schema = useToolcraftCommittedSelector(selectSchema);
+  const mediaAssets = useToolcraftCommittedSelector(selectMediaAssets);
+  const timeline = useToolcraftCommittedSelector(selectCommittedTimeline);
+  const currentTimeSeconds = useToolcraftDependencySelector(
+    selectCurrentTimeSeconds,
+    Object.is,
+    playbackDependencies,
+  );
 
-  if (!state.schema.panels.timeline) {
+  if (!schema.panels.timeline) {
     return null;
   }
 
-  const keyframesEnabled = state.schema.assembly.capabilities.includes('timeline.keyframes');
-  const playbackReady = isTimelineReadyForPlayback(state.schema, state.mediaAssets);
+  const keyframesEnabled = schema.assembly.capabilities.includes('timeline.keyframes');
+  const playbackReady = isTimelineReadyForPlayback(schema, mediaAssets);
 
   const {
-    currentTimeSeconds,
     durationSeconds,
     expanded,
     isLooping,
     isPlaying,
     keyframeGroups,
     selectedKeyframeId,
-  } = state.timeline;
+  } = timeline;
   const [defaultExpandedPending, setDefaultExpandedPending] = useState(defaultExpanded);
   const [isHoverPaused, setIsHoverPaused] = useState(false);
   const displayedIsPlaying = playbackReady && isPlaying;
@@ -131,15 +152,11 @@ export function TimelinePanel({
   const isExpanded = !isCompact && keyframesEnabled && (expanded || defaultExpandedPending);
   const expandedPanelSize = getTimelinePanelExpandedSize(keyframeGroups);
   const previousIsExpandedRef = useRef(isExpanded);
-  const timelineRef = useRef(state.timeline);
   const isExpandCollapseTransition = previousIsExpandedRef.current !== isExpanded;
   const timelinePanelTransition = isExpandCollapseTransition
     ? timelinePanelExpandCollapseTransition
     : timelinePanelResizeTransition;
 
-  useEffect(() => {
-    timelineRef.current = state.timeline;
-  }, [state.timeline]);
   useEffect(() => {
     previousIsExpandedRef.current = isExpanded;
   }, [isExpanded]);
@@ -167,23 +184,35 @@ export function TimelinePanel({
 
   const setCurrentTimeSeconds = useCallback(
     (nextValue: React.SetStateAction<number>): void => {
+      const currentTime = store.getState().timeline.currentTimeSeconds;
       const resolvedValue =
         typeof nextValue === 'function'
-          ? nextValue(timelineRef.current.currentTimeSeconds)
+          ? nextValue(currentTime)
           : nextValue;
 
-      dispatch({ currentTimeSeconds: resolvedValue, type: 'timeline.setCurrentTime' });
+      store.dispatchTransient({
+        currentTimeSeconds: resolvedValue,
+        type: 'timeline.setCurrentTime',
+      });
     },
-    [dispatch],
+    [store],
+  );
+  const commitCurrentTimeSeconds = useCallback((): void => {
+    store.commitTransient('playback');
+  }, [store]);
+  const getCurrentTimeSeconds = useCallback(
+    (): number => store.getState().timeline.currentTimeSeconds,
+    [store],
   );
   const setIsPlaying = useCallback(
     (nextValue: React.SetStateAction<boolean>): void => {
+      const currentIsPlaying = store.getState().timeline.isPlaying;
       const resolvedValue =
-        typeof nextValue === 'function' ? nextValue(timelineRef.current.isPlaying) : nextValue;
+        typeof nextValue === 'function' ? nextValue(currentIsPlaying) : nextValue;
 
       dispatch({ isPlaying: resolvedValue, type: 'timeline.setPlaying' });
     },
-    [dispatch],
+    [dispatch, store],
   );
   const setSelectedKeyframeId = useCallback(
     (keyframeId: string | null): void => {
@@ -192,6 +221,7 @@ export function TimelinePanel({
     [dispatch],
   );
   const scrubber = useTimelineScrubber({
+    commitCurrentTimeSeconds,
     currentTimeSeconds,
     disabled: !playbackReady,
     durationSeconds,
@@ -230,6 +260,7 @@ export function TimelinePanel({
 
   useTimelineClock({
     durationSeconds,
+    getCurrentTimeSeconds,
     isHoverPaused,
     isLooping,
     isPlaying: displayedIsPlaying,
@@ -354,12 +385,13 @@ export function TimelinePanel({
       data-scrubbing={scrubber.isScrubbing ? 'true' : 'false'}
       data-slot="timeline-panel"
       data-timeline-panel-variant={variant}
+      data-toolcraft-timeline-panel-variant={variant}
       initial={false}
       ref={timelineSurfaceRef}
       style={timelinePanelLayoutStyle}
       transition={timelinePanelTransition}
     >
-      <PanelSurface
+      <PanelHoverSurface
         className={cn(
           'group/timeline-panel-surface relative flex h-full w-full flex-col rounded-t-lg rounded-b-lg',
           isExpanded ? 'overflow-hidden' : 'overflow-visible p-1',
@@ -395,6 +427,7 @@ export function TimelinePanel({
           playbackReady={playbackReady}
           onDurationCommit={commitDurationValue}
           onScrubKeyDown={scrubber.handleScrubKeyDown}
+          onScrubLostPointerCapture={scrubber.handleScrubLostPointerCapture}
           onScrubPointerDown={scrubber.handleScrubPointerDown}
           onScrubPointerMove={scrubber.handleScrubPointerMove}
           onScrubPointerUp={scrubber.handleScrubPointerUp}
@@ -405,6 +438,11 @@ export function TimelinePanel({
           onToggleLoop={() => dispatch({ type: 'timeline.toggleLoop' })}
           onTogglePlayback={() => {
             setIsHoverPaused(false);
+            if (displayedIsPlaying) {
+              setIsPlaying(false);
+              return;
+            }
+
             dispatch({ type: 'timeline.togglePlayback' });
           }}
           stripRef={scrubber.stripRef}
@@ -421,6 +459,7 @@ export function TimelinePanel({
             onDeleteKeyframe={deleteKeyframe}
             onKeyframeDragStart={() => setIsPlaying(false)}
             onKeyDown={scrubber.handleScrubKeyDown}
+            onLostPointerCapture={scrubber.handleScrubLostPointerCapture}
             onMoveKeyframe={moveKeyframe}
             onPointerDown={scrubber.handleScrubPointerDown}
             onPointerMove={scrubber.handleScrubPointerMove}
@@ -430,19 +469,27 @@ export function TimelinePanel({
             stripRef={scrubber.stripRef}
           />
         ) : null}
-      </PanelSurface>
+      </PanelHoverSurface>
     </motion.div>
   );
 
-  return (
+  const panel = (
     <PanelContainer
-      onPanelStateChange={onPanelStateChange}
-      panelState={panelState}
+      onPanelStateChange={panelBinding.onPanelStateChange}
+      panelState={resolvedPanelState}
       panelType="timeline"
       placement={resolvedPanelPlacement}
     >
       {timelineSurface}
     </PanelContainer>
+  );
+
+  return resolvedPanelState.hidden ? (
+    <div data-toolcraft-timeline-panel-hidden="true" hidden>
+      {panel}
+    </div>
+  ) : (
+    panel
   );
 }
 

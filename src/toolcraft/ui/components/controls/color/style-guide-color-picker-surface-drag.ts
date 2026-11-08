@@ -4,6 +4,7 @@ import { useEffect, type MutableRefObject } from "react";
 import { hsvToHex, type HsvColor } from "../../../lib/style-guide-color-utils";
 import type { ColorSurfaceModel } from "./style-guide-color-picker-channel-utils";
 import type { InteractionSource } from "./style-guide-color-picker-interaction-state";
+import { subscribeBrowserWindowEvent } from "../../primitives/browser-transport";
 import {
   getSurfaceHsvColor,
   getSurfacePosition,
@@ -80,14 +81,14 @@ export function useSurfaceDrag(options: SurfaceDragOptions) {
 
     const handlePointerMove = (event: PointerEvent) =>
       updateFromSurface(event.clientX, event.clientY);
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", finishDrag);
-    window.addEventListener("pointercancel", finishDrag);
+    const unsubscribeMove = subscribeBrowserWindowEvent("pointermove", handlePointerMove);
+    const unsubscribeUp = subscribeBrowserWindowEvent("pointerup", finishDrag);
+    const unsubscribeCancel = subscribeBrowserWindowEvent("pointercancel", finishDrag);
 
     return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", finishDrag);
-      window.removeEventListener("pointercancel", finishDrag);
+      unsubscribeMove();
+      unsubscribeUp();
+      unsubscribeCancel();
     };
   }, [options]);
 }

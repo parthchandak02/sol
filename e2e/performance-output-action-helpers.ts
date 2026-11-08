@@ -38,10 +38,10 @@ export async function measureToolcraftDownloadActionByLabel(
     throw new Error(`Toolcraft panel action "${label}" did not produce a download.`);
   }
 
-  if (options.scenarioId) {
+  if (options.pathId) {
     await attachToolcraftBrowserRuntimeEvidence({
       evidenceType: "performance-output-completion",
-      requirementId: options.scenarioId,
+      requirementId: options.pathId,
       target: options.target,
     });
   }
@@ -97,10 +97,10 @@ export async function measureToolcraftClipboardActionByLabel(
     throw new Error(`Toolcraft panel action "${label}" did not update the clipboard.`);
   }
 
-  if (options.scenarioId) {
+  if (options.pathId) {
     await attachToolcraftBrowserRuntimeEvidence({
       evidenceType: "performance-output-completion",
-      requirementId: options.scenarioId,
+      requirementId: options.pathId,
       target: options.target,
     });
   }

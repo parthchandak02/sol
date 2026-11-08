@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { defineToolcraft } from "@/toolcraft/runtime";
 
 import {
+  defineContractSchemaFixture,
   contractAcceptanceFixture,
   contractSchemaFixture,
   validateContractAcceptance,
@@ -27,6 +27,7 @@ describe("starter acceptance reference-runtime foundation", () => {
             "renderer-loop",
           ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy badge wall",
           sourceOfTruth: "reference-runtime",
         } as never,
@@ -45,9 +46,18 @@ describe("starter acceptance reference-runtime foundation", () => {
   it("requires a reference feature inventory before accepting a reference-runtime-clone", () => {
     const referenceAcceptance = [
       ...contractAcceptanceFixture,
-      makeReferenceCoverageAcceptance("reference.canvasSizing", "canvas-sizing"),
-      makeReferenceCoverageAcceptance("reference.controlMapping", "control-mapping"),
-      makeReferenceCoverageAcceptance("reference.rendererState", "renderer-state"),
+      makeReferenceCoverageAcceptance(
+        "reference.canvasSizing",
+        "canvas-sizing",
+      ),
+      makeReferenceCoverageAcceptance(
+        "reference.controlMapping",
+        "control-mapping",
+      ),
+      makeReferenceCoverageAcceptance(
+        "reference.rendererState",
+        "renderer-state",
+      ),
     ];
 
     expect(
@@ -55,8 +65,13 @@ describe("starter acceptance reference-runtime foundation", () => {
         schema: contractSchemaFixture,
         acceptance: referenceAcceptance,
         transferMode: {
-          behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
+          behaviorCoverage: [
+            "canvas-sizing",
+            "control-mapping",
+            "renderer-state",
+          ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy badge wall",
           referenceTimeline: { behaviorCoverage: [], mode: "none" },
           sourceOfTruth: "reference-runtime",
@@ -79,13 +94,27 @@ describe("starter acceptance reference-runtime foundation", () => {
         schema: contractSchemaFixture,
         acceptance: [
           ...contractAcceptanceFixture,
-          makeReferenceCoverageAcceptance("reference.canvasSizing", "canvas-sizing"),
-          makeReferenceCoverageAcceptance("reference.controlMapping", "control-mapping"),
-          makeReferenceCoverageAcceptance("reference.rendererState", "renderer-state"),
+          makeReferenceCoverageAcceptance(
+            "reference.canvasSizing",
+            "canvas-sizing",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.controlMapping",
+            "control-mapping",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.rendererState",
+            "renderer-state",
+          ),
         ],
         transferMode: {
-          behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
+          behaviorCoverage: [
+            "canvas-sizing",
+            "control-mapping",
+            "renderer-state",
+          ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceFeatureInventory: makeReferenceFeatureInventory(),
           referenceName: "legacy badge wall",
           referenceTimeline: { behaviorCoverage: [], mode: "none" },
@@ -103,13 +132,27 @@ describe("starter acceptance reference-runtime foundation", () => {
         schema: contractSchemaFixture,
         acceptance: [
           ...contractAcceptanceFixture,
-          makeReferenceCoverageAcceptance("reference.canvasSizing", "canvas-sizing"),
-          makeReferenceCoverageAcceptance("reference.controlMapping", "control-mapping"),
-          makeReferenceCoverageAcceptance("reference.rendererState", "renderer-state"),
+          makeReferenceCoverageAcceptance(
+            "reference.canvasSizing",
+            "canvas-sizing",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.controlMapping",
+            "control-mapping",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.rendererState",
+            "renderer-state",
+          ),
         ],
         transferMode: {
-          behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
+          behaviorCoverage: [
+            "canvas-sizing",
+            "control-mapping",
+            "renderer-state",
+          ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceFeatureInventory: makeReferenceFeatureInventory(),
           referenceName: "legacy badge wall",
           referenceStudy: {
@@ -127,7 +170,10 @@ describe("starter acceptance reference-runtime foundation", () => {
   });
 
   it("rejects reference feature inventory items that are not backed by reference acceptance coverage", () => {
-    const ordinaryControlAcceptance = makeControlAcceptance("appearance.opacity", "slider");
+    const ordinaryControlAcceptance = makeControlAcceptance(
+      "appearance.opacity",
+      "slider",
+    );
 
     expect(
       validateContractAcceptance({
@@ -135,22 +181,36 @@ describe("starter acceptance reference-runtime foundation", () => {
         acceptance: [
           ...contractAcceptanceFixture,
           ordinaryControlAcceptance,
-          makeReferenceCoverageAcceptance("reference.controlMapping", "control-mapping"),
-          makeReferenceCoverageAcceptance("reference.rendererState", "renderer-state"),
+          makeReferenceCoverageAcceptance(
+            "reference.controlMapping",
+            "control-mapping",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.rendererState",
+            "renderer-state",
+          ),
         ],
         transferMode: {
-          behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
+          behaviorCoverage: [
+            "canvas-sizing",
+            "control-mapping",
+            "renderer-state",
+          ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceFeatureInventory: [
             {
               acceptanceId: "appearance.opacity",
-              behaviorEvidence: "Observed the reference browser output preserve its canvas dimensions.",
+              behaviorEvidence:
+                "Observed the reference browser output preserve its canvas dimensions.",
               featureName: "Canvas sizing",
               id: "canvas-sizing",
-              referenceBehavior: "The reference renderer owns output sizing and canvas dimensions.",
+              referenceBehavior:
+                "The reference renderer owns output sizing and canvas dimensions.",
               sourceEvidence: "Inspected reference renderer sizing source.",
               status: "ported",
-              toolcraftMapping: "Toolcraft editable-output sizing preserves the reference dimensions.",
+              toolcraftMapping:
+                "Toolcraft editable-output sizing preserves the reference dimensions.",
             },
             ...makeReferenceFeatureInventory().slice(1),
           ],
@@ -173,13 +233,27 @@ describe("starter acceptance reference-runtime foundation", () => {
         schema: contractSchemaFixture,
         acceptance: [
           ...contractAcceptanceFixture,
-          makeReferenceCoverageAcceptance("reference.canvasSizing", "canvas-sizing"),
-          makeReferenceCoverageAcceptance("reference.controlMapping", "control-mapping"),
-          makeReferenceCoverageAcceptance("reference.rendererState", "renderer-state"),
+          makeReferenceCoverageAcceptance(
+            "reference.canvasSizing",
+            "canvas-sizing",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.controlMapping",
+            "control-mapping",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.rendererState",
+            "renderer-state",
+          ),
         ],
         transferMode: {
-          behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
+          behaviorCoverage: [
+            "canvas-sizing",
+            "control-mapping",
+            "renderer-state",
+          ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceFeatureInventory: [
             { ...makeReferenceFeatureInventory()[0], behaviorEvidence: "" },
             ...makeReferenceFeatureInventory().slice(1),
@@ -201,13 +275,27 @@ describe("starter acceptance reference-runtime foundation", () => {
         schema: contractSchemaFixture,
         acceptance: [
           ...contractAcceptanceFixture,
-          makeReferenceCoverageAcceptance("reference.canvasSizing", "canvas-sizing"),
-          makeReferenceCoverageAcceptance("reference.controlMapping", "control-mapping"),
-          makeReferenceCoverageAcceptance("reference.rendererState", "renderer-state"),
+          makeReferenceCoverageAcceptance(
+            "reference.canvasSizing",
+            "canvas-sizing",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.controlMapping",
+            "control-mapping",
+          ),
+          makeReferenceCoverageAcceptance(
+            "reference.rendererState",
+            "renderer-state",
+          ),
         ],
         transferMode: {
-          behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
+          behaviorCoverage: [
+            "canvas-sizing",
+            "control-mapping",
+            "renderer-state",
+          ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceFeatureInventory: [
             {
               ...makeReferenceFeatureInventory()[0],
@@ -227,18 +315,23 @@ describe("starter acceptance reference-runtime foundation", () => {
   });
 
   it("rejects reference-runtime-clone apps that disable the Toolcraft canvas shell", () => {
-    const schemaWithoutCanvas = defineToolcraft({
-      canvas: {
-        enabled: false,
-        size: { height: 720, unit: "px", width: 1280 },
+    const schemaWithoutCanvas = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: {
+          enabled: false,
+          size: { height: 720, unit: "px", width: 1280 },
+        },
+        panels: {},
+        toolbar: {
+          history: false,
+          radar: false,
+          theme: false,
+          zoom: false,
+        },
+        persistence: { storage: "none" },
       },
-      panels: {},
-      toolbar: {
-        history: false,
-        radar: false,
-        theme: false,
-        zoom: false,
-      },
+      modules: [],
     });
 
     expect(
@@ -249,11 +342,16 @@ describe("starter acceptance reference-runtime foundation", () => {
           {
             automated: true,
             automatedTestName: "reference canvas size matches legacy renderer",
-            browser: true,
-            browserTestName: "browser: reference canvas size matches legacy renderer",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName:
+                "browser: reference canvas size matches legacy renderer",
+            },
             componentType: "custom-renderer",
             evidence: "rendered-pixels",
-            expectedObservable: "The Toolcraft renderer uses the same output dimensions as the reference runtime.",
+            expectedObservable:
+              "The Toolcraft renderer uses the same output dimensions as the reference runtime.",
             fixture: "legacy renderer fixture",
             id: "reference.canvasSizing",
             kind: "runtime",
@@ -262,36 +360,55 @@ describe("starter acceptance reference-runtime foundation", () => {
           },
           {
             automated: true,
-            automatedTestName: "reference control mapping preserves legacy output",
-            browser: true,
-            browserTestName: "browser: reference control mapping preserves legacy output",
+            automatedTestName:
+              "reference control mapping preserves legacy output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName:
+                "browser: reference control mapping preserves legacy output",
+            },
             componentType: "custom-renderer",
             evidence: "product-output",
-            expectedObservable: "Changing each mapped control updates the same renderer parameter as the reference app.",
+            expectedObservable:
+              "Changing each mapped control updates the same renderer parameter as the reference app.",
             fixture: "legacy controls fixture",
             id: "reference.controlMapping",
             kind: "runtime",
             referenceCoverage: "control-mapping",
-            userAction: "Change mapped controls and compare reference output behavior.",
+            userAction:
+              "Change mapped controls and compare reference output behavior.",
           },
           {
             automated: true,
-            automatedTestName: "reference renderer state preserves legacy lifecycle",
-            browser: true,
-            browserTestName: "browser: reference renderer state preserves legacy lifecycle",
+            automatedTestName:
+              "reference renderer state preserves legacy lifecycle",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName:
+                "browser: reference renderer state preserves legacy lifecycle",
+            },
             componentType: "custom-renderer",
             evidence: "product-output",
-            expectedObservable: "The renderer preserves the reference runtime mutable state lifecycle across frames.",
+            expectedObservable:
+              "The renderer preserves the reference runtime mutable state lifecycle across frames.",
             fixture: "legacy renderer state fixture",
             id: "reference.rendererState",
             kind: "runtime",
             referenceCoverage: "renderer-state",
-            userAction: "Run the renderer across frames and compare stateful output.",
+            userAction:
+              "Run the renderer across frames and compare stateful output.",
           },
         ],
         transferMode: {
-          behaviorCoverage: ["canvas-sizing", "control-mapping", "renderer-state"],
+          behaviorCoverage: [
+            "canvas-sizing",
+            "control-mapping",
+            "renderer-state",
+          ],
           mode: "reference-runtime-clone",
+          referenceInputs: [],
           referenceName: "legacy iframe shell",
           referenceTimeline: { behaviorCoverage: [], mode: "none" },
           sourceOfTruth: "reference-runtime",

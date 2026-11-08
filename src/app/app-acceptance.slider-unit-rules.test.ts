@@ -1,35 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { defineToolcraft } from "@/toolcraft/runtime";
 
-import { validateContractAcceptance } from "./app-acceptance.contract-fixtures";
+import {
+  defineContractSchemaFixture,
+  validateContractAcceptance,
+} from "./app-acceptance.contract-fixtures";
 import { makeControlAcceptance } from "./app-acceptance.test-utils";
 
 describe("starter acceptance slider unit rules", () => {
   it("rejects x units on slider value labels", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                strength: {
-                  defaultValue: 0.4,
-                  label: "Strength",
-                  max: 1,
-                  min: 0,
-                  step: 0.01,
-                  target: "glass.strength",
-                  type: "slider",
-                  unit: "x",
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-1",
+                controls: {
+                  strength: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: 0.4,
+                    label: "Strength",
+                    max: 1,
+                    min: 0,
+                    step: 0.01,
+                    target: "glass.strength",
+                    type: "slider",
+                    unit: "x",
+                  },
                 },
+                title: "Glass",
               },
-              title: "Glass",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     expect(
@@ -39,11 +48,15 @@ describe("starter acceptance slider unit rules", () => {
           {
             automated: true,
             automatedTestName: "strength changes glass output",
-            browser: true,
-            browserTestName: "browser: strength slider changes glass output",
+            browser: {
+              budget: "standard",
+              file: "e2e/app-controls.spec.ts",
+              testName: "browser: strength slider changes glass output",
+            },
             componentType: "slider",
             evidence: "rendered-pixels",
-            expectedObservable: "Changing Strength changes the rendered glass strength.",
+            expectedObservable:
+              "Changing Strength changes the rendered glass strength.",
             fixture: "glass strength fixture",
             id: "glass.strength",
             kind: "control",

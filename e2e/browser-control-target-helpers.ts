@@ -107,3 +107,21 @@ export async function getToolcraftControlFieldByTarget(
   ).toBeVisible();
   return control;
 }
+
+/** Includes every item field of a compound/collection control, not only the first Field. */
+export async function getToolcraftControlOwnerByTarget(
+  page: Page,
+  target: string,
+): Promise<Locator> {
+  const normalizedTarget = normalizeTarget(target);
+  const { boundaries, matches } = await findToolcraftControlOwnerMatches(page, normalizedTarget);
+  if (matches.length !== 1) {
+    throw new Error(`Vector proof requires exactly one rendered control owner for schema target "${normalizedTarget}"; found ${matches.length}.`);
+  }
+  const [match] = matches;
+  const owner = match.fieldIndex === undefined
+    ? boundaries.nth(match.boundaryIndex)
+    : boundaries.nth(match.boundaryIndex).locator('[data-slot="field"]').nth(match.fieldIndex);
+  await expect(owner).toBeVisible();
+  return owner;
+}

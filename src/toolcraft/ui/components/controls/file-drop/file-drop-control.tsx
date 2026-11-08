@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeInteractionHostProps } from "../../primitives/sanitize-composed-host-props";
 import * as React from "react";
 import {
   KeyboardSensor,
@@ -8,45 +9,71 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import {
-  arrayMove,
-  sortableKeyboardCoordinates,
-} from "@dnd-kit/sortable";
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 
 import { cn } from "../../../lib/utils";
 import { ActionsControl } from "../actions/actions-control";
 import { Field } from "../../primitives";
+import { FileDropCollectionControl } from "./file-drop-collection-control";
 import { FileDropEmptyState } from "./file-drop-empty-state";
 import { FileDropFileList } from "./file-drop-file-list";
+import { FileDropFolderInput } from "./file-drop-folder-input";
 import { FileDropImageGrid } from "./file-drop-image-grid";
+import { FileDropPresentationMessages } from "./file-drop-presentation-messages";
 import {
+  createLegacyFileDropPresentation,
+  createFileDropActionModel,
+  createFileDropItemView,
+  createFileDropTargetHandlers,
   getFileInputAccept,
+  getPresentationItemKey,
   getPreviewKey,
   imageTransformActions,
-  isDragLeavingCurrentTarget,
-} from "./file-drop-model";
+  reorderFileDropPresentationItems,
+} from "./file-drop-presentation";
 import { FileDropSinglePreview } from "./file-drop-single-preview";
 import type {
+  FileDropAssetKind,
   FileDropControlProps,
   FileDropImageTransformOperation,
+  FileDropPresentation,
+  FileDropPresentationItem,
+  FileDropPreview,
 } from "./file-drop-types";
 
-export function FileDropControl({
+function FileDropControlBase<
+  AssetKind extends string = FileDropAssetKind,
+  Feedback = unknown,
+  Status = unknown,
+>({
   accept,
   assetKind = "image",
+  collectionActions,
+  collectionSlot = false,
   multiple = false,
+  onAction,
   onClear,
   onFileSelect,
   onFilesSelect,
+  onFolderSelect,
+  onItemRemove,
+  onItemSelect,
+  onItemsReorder,
   onPreviewRemove,
   onPreviewReorder,
   onPreviewTransform,
+  presentation: providedPresentation,
   preview,
   previews,
-}: FileDropControlProps): React.JSX.Element {
+}: FileDropControlProps<AssetKind, Feedback, Status> & {
+  collectionSlot?: boolean;
+}): React.JSX.Element {
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const folderInputRef = React.useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = React.useState(false);
-  const [selectedPreviewKey, setSelectedPreviewKey] = React.useState<string | null>(null);
+  const [selectedItemKey, setSelectedItemKey] = React.useState<string | null>(
+    null,
+  );
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -57,53 +84,106 @@ export function FileDropControl({
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
-  const previewItems = previews ?? (preview ? [preview] : []);
-  const hasPreview = previewItems.some((item) => Boolean(item.src));
-  const shouldRenderPreviewGrid = multiple && previewItems.length > 1;
-  const shouldRenderFileList = assetKind === "file" && hasPreview;
-  const previewEntries = previewItems.map((item, index) => ({
-    item,
-    key: getPreviewKey(item, index),
-  }));
-  const previewKeys = previewEntries.map((entry) => entry.key);
-  const requiresImageSelection = assetKind === "image" && multiple && previewEntries.length > 1;
-  const selectedPreviewEntry = requiresImageSelection
-    ? previewEntries.find((entry) => entry.key === selectedPreviewKey)
-    : previewEntries[0];
-  const shouldRenderImageActions =
-    assetKind === "image" &&
-    hasPreview &&
+  const legacy = createLegacyFileDropPresentation({
+    accept,
+    assetKind,
+    multiple,
+    preview,
+    previews,
+  });
+  const usesLegacyPresentation = providedPresentation === undefined;
+  const presentation = (providedPresentation ??
+    legacy.presentation) as FileDropPresentation<string, unknown, unknown>;
+  const isImagePresenter =
+    presentation.presenter === "image-grid" ||
+    presentation.presenter === "single-image";
+  const requiresPreviewSource = usesLegacyPresentation || isImagePresenter;
+  const {
+    entries: itemEntries,
+    hasContent,
+    isListPresenter,
+    itemKeys,
+    items: renderableItems,
+  } = createFileDropItemView(presentation, requiresPreviewSource);
+  const isAttachedCollectionSlot = collectionSlot && hasContent;
+  const showsListCardinalityActions = !collectionSlot;
+  const legacyPreviewByKey = new Map<string, FileDropPreview>(
+    legacy.previews.map((item, index) => [getPreviewKey(item, index), item]),
+  );
+  const canSelectImageItem = usesLegacyPresentation
+    ? Boolean(onPreviewTransform)
+    : Boolean(onItemSelect);
+  const requiresItemSelection =
+    presentation.presenter === "image-grid" &&
+    itemEntries.length > 1 &&
+    canSelectImageItem;
+  const selectedItemEntry = requiresItemSelection
+    ? itemEntries.find((entry) => entry.key === selectedItemKey)
+    : itemEntries[0];
+  const shouldRenderLegacyImageActions =
+    usesLegacyPresentation &&
+    (presentation.presenter === "image-grid" ||
+      presentation.presenter === "single-image") &&
+    hasContent &&
     Boolean(onPreviewTransform) &&
-    Boolean(selectedPreviewEntry) &&
-    (!requiresImageSelection || selectedPreviewKey !== null);
+    Boolean(selectedItemEntry) &&
+    (!requiresItemSelection || selectedItemKey !== null);
+  const secondaryActions = shouldRenderLegacyImageActions
+    ? imageTransformActions
+    : presentation.secondaryActions;
+  const actionModel = createFileDropActionModel(
+    secondaryActions,
+    Boolean(shouldRenderLegacyImageActions || onAction),
+  );
+  const hasReorderHandler = usesLegacyPresentation
+    ? Boolean(onPreviewReorder)
+    : Boolean(onItemsReorder);
+  const canRemoveCollectionItem = usesLegacyPresentation
+    ? Boolean(onPreviewRemove)
+    : Boolean(onItemRemove || (onClear && renderableItems.length === 1));
+  const dropTargetHandlers = createFileDropTargetHandlers({
+    enabled: !isAttachedCollectionSlot,
+    onDragOverChange: setDragOver,
+    onFiles: handleFiles,
+  });
+
+  if (
+    !usesLegacyPresentation &&
+    onItemsReorder &&
+    presentation.presenter !== "file-list" &&
+    presentation.presenter !== "image-grid"
+  ) {
+    throw new Error(
+      `FileDrop presenter "${presentation.presenter}" does not support item reordering.`,
+    );
+  }
 
   React.useEffect(() => {
-    if (!selectedPreviewKey) {
+    if (!selectedItemKey) {
       return;
     }
-
-    if (!requiresImageSelection || !previewKeys.includes(selectedPreviewKey)) {
-      setSelectedPreviewKey(null);
+    if (!requiresItemSelection || !itemKeys.includes(selectedItemKey)) {
+      setSelectedItemKey(null);
     }
-  }, [previewKeys, requiresImageSelection, selectedPreviewKey]);
+  }, [itemKeys, requiresItemSelection, selectedItemKey]);
 
   function handleFiles(fileList: FileList | readonly File[] | undefined): void {
     const files = Array.from(fileList ?? []);
-
     if (files.length === 0) {
       return;
     }
-
-    if (multiple) {
+    if (!usesLegacyPresentation) {
+      onFilesSelect?.(files);
+      return;
+    }
+    if (presentation.allowsFileBatch) {
       if (onFilesSelect) {
         onFilesSelect(files);
         return;
       }
-
       files.forEach((file) => onFileSelect?.(file));
       return;
     }
-
     onFileSelect?.(files[0]);
   }
 
@@ -111,156 +191,271 @@ export function FileDropControl({
     inputRef.current?.click();
   }
 
-  function handleDropTargetClick(event: React.MouseEvent<HTMLDivElement>): void {
-    event.preventDefault();
-    openFileDialog();
+  function openFolderDialog(): void {
+    folderInputRef.current?.click();
   }
 
-  function handleDropTargetKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    openFileDialog();
-  }
-
-  function handlePreviewDragEnd(event: DragEndEvent): void {
+  function handleItemDragEnd(event: DragEndEvent): void {
     const activeKey = String(event.active.id);
     const overKey = event.over ? String(event.over.id) : null;
-
-    if (!onPreviewReorder || !overKey || activeKey === overKey) {
+    if (!hasReorderHandler || !overKey || activeKey === overKey) {
       return;
     }
-
-    const activeIndex = previewKeys.indexOf(activeKey);
-    const overIndex = previewKeys.indexOf(overKey);
-
-    if (activeIndex < 0 || overIndex < 0 || activeIndex === overIndex) {
+    const orderedPresentationItems = reorderFileDropPresentationItems(
+      presentation.items,
+      itemEntries,
+      activeKey,
+      overKey,
+    );
+    if (!orderedPresentationItems) {
       return;
     }
-
-    onPreviewReorder(
-      arrayMove(previewEntries, activeIndex, overIndex).map((entry) => entry.item),
+    if (usesLegacyPresentation) {
+      const orderedPreviews = orderedPresentationItems.flatMap(
+        (item, index) => {
+          const key = getPresentationItemKey(item, index);
+          const legacyPreview = legacyPreviewByKey.get(key);
+          return legacyPreview ? [legacyPreview] : [];
+        },
+      );
+      if (orderedPreviews.length === legacy.previews.length) {
+        onPreviewReorder?.(orderedPreviews);
+      }
+      return;
+    }
+    onItemsReorder?.(
+      orderedPresentationItems as FileDropPresentationItem<AssetKind>[],
     );
   }
 
-  function runImageTransform(operation: FileDropImageTransformOperation): void {
-    if (!selectedPreviewEntry) {
+  function handleCollectionItemRemove(
+    item: FileDropPresentationItem,
+    index: number,
+  ): void {
+    if (usesLegacyPresentation) {
+      const legacyPreview = legacyPreviewByKey.get(
+        getPresentationItemKey(item, index),
+      );
+      if (legacyPreview) {
+        onPreviewRemove?.(legacyPreview, index);
+      }
       return;
     }
+    if (onItemRemove) {
+      onItemRemove(item as FileDropPresentationItem<AssetKind>, index);
+      return;
+    }
+    if (renderableItems.length === 1) {
+      onClear?.();
+    }
+  }
 
-    onPreviewTransform?.(selectedPreviewEntry.item, operation);
+  function handleSingleItemRemove(): void {
+    const entry = itemEntries[0];
+    if (!usesLegacyPresentation && entry && onItemRemove) {
+      onItemRemove(
+        entry.item as FileDropPresentationItem<AssetKind>,
+        entry.sourceIndex,
+      );
+      return;
+    }
+    onClear?.();
+  }
+
+  function handleSecondaryAction(value: string): void {
+    if (shouldRenderLegacyImageActions) {
+      const legacyPreview = selectedItemEntry
+        ? legacyPreviewByKey.get(selectedItemEntry.key)
+        : undefined;
+      if (legacyPreview) {
+        onPreviewTransform?.(
+          legacyPreview,
+          value as FileDropImageTransformOperation,
+        );
+      }
+      return;
+    }
+    onAction?.(value);
+  }
+
+  if (collectionActions) {
+    return (
+      <FileDropCollectionControl
+        actions={collectionActions}
+        canRemoveAttachedItem={canRemoveCollectionItem}
+        entries={itemEntries}
+        onRemoveAttachedItem={handleCollectionItemRemove}
+        presentation={presentation}
+        renderSlotControl={(slotPresentation) => (
+          <FileDropControlBase
+            collectionSlot
+            onFilesSelect={(files) => onFilesSelect?.(files.slice(0, 1))}
+            presentation={slotPresentation}
+          />
+        )}
+      />
+    );
   }
 
   return (
     <Field className="min-w-0" style={{ gap: "6px" }}>
       <input
-        accept={getFileInputAccept(accept)}
-        aria-hidden="true"
+        accept={getFileInputAccept(presentation.accept)}
+        aria-label={presentation.emptyTitle}
         className="hidden"
+        data-slot="file-upload-input"
+        hidden
         onChange={(event) => {
           handleFiles(event.currentTarget.files ?? undefined);
           event.currentTarget.value = "";
         }}
-        multiple={multiple}
+        multiple={presentation.allowsFileBatch}
         ref={inputRef}
         tabIndex={-1}
         type="file"
       />
+      {presentation.allowsFolderSelection ? (
+        <FileDropFolderInput
+          ariaLabel={`${presentation.emptyTitle} folder`}
+          inputRef={folderInputRef}
+          onFilesSelect={onFolderSelect}
+        />
+      ) : null}
       <div
         aria-label={
-          hasPreview
-            ? multiple
-              ? assetKind === "file"
-                ? "Drop files"
-                : "Drop image files"
-              : assetKind === "file"
-                ? "Replace file"
-                : "Replace image file"
-            : multiple
-              ? assetKind === "file"
-                ? "Browse files"
-                : "Browse image files"
-              : assetKind === "file"
-                ? "Browse file"
-                : "Browse image file"
+          usesLegacyPresentation
+            ? legacy.dropTargetLabel
+            : `${presentation.emptyTitle}. ${presentation.emptyDescription}`
         }
         className={cn(
-          "group/file-upload relative flex min-h-16 w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-[color:color-mix(in_oklab,var(--border)_18%,transparent)] bg-[color:color-mix(in_oklab,var(--foreground)_3%,transparent)] text-center shadow-none transition-[background-color,border-color,box-shadow] duration-150 ease-out data-[drag-over=true]:border-[color:color-mix(in_oklab,var(--link)_28%,transparent)] data-[drag-over=true]:bg-[color:color-mix(in_oklab,var(--link)_13%,transparent)] data-[drag-over=true]:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--background)]",
-          !shouldRenderFileList &&
+          "group/file-upload relative flex min-h-16 w-full flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed border-[color:color-mix(in_oklab,var(--border)_18%,transparent)] bg-[color:color-mix(in_oklab,var(--foreground)_3%,transparent)] text-center shadow-none transition-[background-color,border-color,box-shadow] duration-150 ease-out data-[drag-over=true]:border-[color:color-mix(in_oklab,var(--link)_28%,transparent)] data-[drag-over=true]:bg-[color:color-mix(in_oklab,var(--link)_13%,transparent)] data-[drag-over=true]:shadow-none",
+          !isListPresenter &&
             "hover:border-[color:color-mix(in_oklab,var(--border)_35%,transparent)] hover:bg-[color:color-mix(in_oklab,var(--foreground)_6%,transparent)]",
-          hasPreview
-            ? shouldRenderFileList
+          hasContent
+            ? isListPresenter
               ? "overflow-hidden p-1.5"
               : "overflow-hidden p-2"
-            : "px-3 py-3",
+            : "p-0",
         )}
         data-drag-over={dragOver}
-        onClick={handleDropTargetClick}
-        onDragEnter={(event) => {
-          event.preventDefault();
-          setDragOver(true);
-        }}
-        onDragLeave={(event) => {
-          if (isDragLeavingCurrentTarget(event)) {
-            setDragOver(false);
-          }
-        }}
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragOver(true);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragOver(false);
-          handleFiles(event.dataTransfer?.files ?? undefined);
-        }}
-        onKeyDown={handleDropTargetKeyDown}
-        role="button"
-        tabIndex={0}
+        {...sanitizeInteractionHostProps(dropTargetHandlers)}
+        data-slot="file-upload-drop-target"
+        role="group"
       >
-        {shouldRenderFileList ? (
+        {!hasContent ? (
+          <FileDropEmptyState
+            description={presentation.emptyDescription}
+            onActivate={openFileDialog}
+            onFolderActivate={
+              presentation.allowsFolderSelection ? openFolderDialog : undefined
+            }
+            title={presentation.emptyTitle}
+          />
+        ) : presentation.presenter === "file-list" ? (
           <FileDropFileList
-            isSortable={Boolean(onPreviewReorder) && previewEntries.length > 1}
-            onAddFile={openFileDialog}
-            onDragEnd={handlePreviewDragEnd}
-            onPreviewRemove={onPreviewRemove}
-            previewEntries={previewEntries}
-            previewKeys={previewKeys}
+            isSortable={hasReorderHandler && itemEntries.length > 1}
+            onAddFile={showsListCardinalityActions ? openFileDialog : undefined}
+            onDragEnd={handleItemDragEnd}
+            onItemRemove={
+              showsListCardinalityActions && canRemoveCollectionItem
+                ? handleCollectionItemRemove
+                : undefined
+            }
+            previewEntries={itemEntries}
+            previewKeys={itemKeys}
             sensors={sensors}
           />
-        ) : shouldRenderPreviewGrid ? (
+        ) : presentation.presenter === "image-grid" ? (
           <FileDropImageGrid
-            isSortable={Boolean(onPreviewReorder)}
+            isSortable={hasReorderHandler && itemEntries.length > 1}
             onAddImages={openFileDialog}
-            onDragEnd={handlePreviewDragEnd}
-            onPreviewRemove={onPreviewRemove}
-            onPreviewSelect={(key) => {
-              setSelectedPreviewKey((currentKey) => (currentKey === key ? null : key));
-            }}
-            previewEntries={previewEntries}
-            previewKeys={previewKeys}
-            selectedPreviewKey={selectedPreviewKey}
+            onDragEnd={handleItemDragEnd}
+            onItemRemove={
+              canRemoveCollectionItem ? handleCollectionItemRemove : undefined
+            }
+            onPreviewSelect={
+              canSelectImageItem
+                ? (key) => {
+                    const entry = itemEntries.find(
+                      (candidate) => candidate.key === key,
+                    );
+
+                    if (!entry) {
+                      return;
+                    }
+
+                    if (usesLegacyPresentation) {
+                      setSelectedItemKey((currentKey) =>
+                        currentKey === key ? null : key,
+                      );
+                      return;
+                    }
+
+                    setSelectedItemKey(key);
+                    onItemSelect?.(
+                      entry.item as FileDropPresentationItem<AssetKind>,
+                      entry.sourceIndex,
+                    );
+                  }
+                : undefined
+            }
+            previewEntries={itemEntries}
+            previewKeys={itemKeys}
+            selectedPreviewKey={selectedItemKey}
             sensors={sensors}
           />
-        ) : hasPreview ? (
-          <FileDropSinglePreview onClear={onClear} preview={previewItems[0]} />
+        ) : presentation.presenter === "model-item" ? (
+          <FileDropFileList
+            isSortable={false}
+            onDragEnd={handleItemDragEnd}
+            onItemActivate={openFileDialog}
+            onItemRemove={
+              canRemoveCollectionItem ? handleCollectionItemRemove : undefined
+            }
+            previewEntries={itemEntries}
+            previewKeys={itemKeys}
+            sensors={sensors}
+          />
         ) : (
-          <FileDropEmptyState assetKind={assetKind} />
+          <FileDropSinglePreview
+            item={renderableItems[0]}
+            onActivate={openFileDialog}
+            onRemove={
+              usesLegacyPresentation
+                ? onClear
+                  ? handleSingleItemRemove
+                  : undefined
+                : onItemRemove || onClear
+                  ? handleSingleItemRemove
+                  : undefined
+            }
+          />
         )}
       </div>
-      {shouldRenderImageActions ? (
+      <FileDropPresentationMessages
+        feedback={presentation.feedback}
+        status={presentation.status}
+      />
+      {secondaryActions.length > 0 ? (
         <ActionsControl
-          actions={imageTransformActions}
-          buttonColumns={3}
-          name="Image transforms"
-          onAction={(operation) =>
-            runImageTransform(operation as FileDropImageTransformOperation)
-          }
+          actionStates={actionModel.states}
+          actions={actionModel.options}
+          buttonColumns={isImagePresenter ? 3 : undefined}
+          name={isImagePresenter ? "Image transforms" : "File actions"}
+          onAction={handleSecondaryAction}
           showLabel={false}
         />
       ) : null}
     </Field>
   );
+}
+
+export function FileDropControl<
+  AssetKind extends string = FileDropAssetKind,
+  Feedback = unknown,
+  Status = unknown,
+>(
+  props: FileDropControlProps<AssetKind, Feedback, Status>,
+): React.JSX.Element {
+  return <FileDropControlBase {...props} />;
 }

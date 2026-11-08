@@ -1,44 +1,54 @@
 import { describe, expect, it } from "vitest";
-import { defineToolcraft } from "@/toolcraft/runtime";
 
-import { validateContractAcceptance } from "./app-acceptance.contract-fixtures";
+import {
+  defineContractSchemaFixture,
+  validateContractAcceptance,
+} from "./app-acceptance.contract-fixtures";
 import { makeControlAcceptance } from "./app-acceptance.test-utils";
 
 describe("starter acceptance toggle pair layout rules", () => {
   it("allows inline switch pairs when both labels are compact", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                glow: {
-                  defaultValue: true,
-                  label: "Glow",
-                  target: "style.glow",
-                  type: "switch",
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-1",
+                controls: {
+                  glow: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: true,
+                    label: "Glow",
+                    target: "style.glow",
+                    type: "switch",
+                  },
+                  loop: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: false,
+                    label: "Loop",
+                    target: "animation.loop",
+                    type: "switch",
+                  },
                 },
-                loop: {
-                  defaultValue: false,
-                  label: "Loop",
-                  target: "animation.loop",
-                  type: "switch",
-                },
+                layoutGroups: [
+                  {
+                    columns: 2,
+                    controls: ["glow", "loop"],
+                    layout: "inline",
+                  },
+                ],
+                title: "Style",
               },
-              layoutGroups: [
-                {
-                  columns: 2,
-                  controls: ["glow", "loop"],
-                  layout: "inline",
-                },
-              ],
-              title: "Style",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     const errors = validateContractAcceptance({
@@ -50,37 +60,47 @@ describe("starter acceptance toggle pair layout rules", () => {
     });
 
     expect(errors).not.toEqual(
-      expect.arrayContaining([expect.stringContaining("two-column toggle row")]),
+      expect.arrayContaining([
+        expect.stringContaining("two-column toggle row"),
+      ]),
     );
   });
 
   it("requires adjacent compact toggle pairs for the same target entity to use an inline row", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                snapX: {
-                  defaultValue: true,
-                  label: "Snap X",
-                  target: "icon.snapX",
-                  type: "switch",
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-2",
+                controls: {
+                  snapX: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: true,
+                    label: "Snap X",
+                    target: "icon.snapX",
+                    type: "switch",
+                  },
+                  snapY: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: true,
+                    label: "Snap Y",
+                    target: "icon.snapY",
+                    type: "switch",
+                  },
                 },
-                snapY: {
-                  defaultValue: true,
-                  label: "Snap Y",
-                  target: "icon.snapY",
-                  type: "switch",
-                },
+                title: "Icon Mark",
               },
-              title: "Icon Mark",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     expect(
@@ -99,39 +119,47 @@ describe("starter acceptance toggle pair layout rules", () => {
   });
 
   it("accepts adjacent compact toggle pairs for the same target entity when they use an inline row", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                snapX: {
-                  defaultValue: true,
-                  label: "Snap X",
-                  target: "icon.snapX",
-                  type: "switch",
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-3",
+                controls: {
+                  snapX: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: true,
+                    label: "Snap X",
+                    target: "icon.snapX",
+                    type: "switch",
+                  },
+                  snapY: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: true,
+                    label: "Snap Y",
+                    target: "icon.snapY",
+                    type: "switch",
+                  },
                 },
-                snapY: {
-                  defaultValue: true,
-                  label: "Snap Y",
-                  target: "icon.snapY",
-                  type: "switch",
-                },
+                layoutGroups: [
+                  {
+                    columns: 2,
+                    controls: ["snapX", "snapY"],
+                    layout: "inline",
+                  },
+                ],
+                title: "Icon Mark",
               },
-              layoutGroups: [
-                {
-                  columns: 2,
-                  controls: ["snapX", "snapY"],
-                  layout: "inline",
-                },
-              ],
-              title: "Icon Mark",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     const errors = validateContractAcceptance({
@@ -143,44 +171,54 @@ describe("starter acceptance toggle pair layout rules", () => {
     });
 
     expect(errors).not.toEqual(
-      expect.arrayContaining([expect.stringContaining("compact paired toggles share one row")]),
+      expect.arrayContaining([
+        expect.stringContaining("compact paired toggles share one row"),
+      ]),
     );
   });
 
   it("rejects inline switch pairs when a label would truncate", () => {
-    const schema = defineToolcraft({
-      canvas: { enabled: true },
-      panels: {
-        controls: {
-          sections: [
-            {
-              controls: {
-                background: {
-                  defaultValue: true,
-                  label: "Background",
-                  target: "output.background",
-                  type: "switch",
+    const schema = defineContractSchemaFixture({
+      base: {
+        identity: { id: "contract-fixture", title: "Contract fixture" },
+        canvas: { enabled: true },
+        panels: {
+          controls: {
+            sections: [
+              {
+                id: "test-section-4",
+                controls: {
+                  background: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: true,
+                    label: "Background",
+                    target: "output.background",
+                    type: "switch",
+                  },
+                  diagnosticOverlay: {
+                    applicability: { mode: "always" as const },
+                    defaultValue: false,
+                    label: "Diagnostic overlay",
+                    target: "debug.diagnosticOverlay",
+                    type: "switch",
+                  },
                 },
-                diagnosticOverlay: {
-                  defaultValue: false,
-                  label: "Diagnostic overlay",
-                  target: "debug.diagnosticOverlay",
-                  type: "switch",
-                },
+                layoutGroups: [
+                  {
+                    columns: 2,
+                    controls: ["background", "diagnosticOverlay"],
+                    layout: "inline",
+                  },
+                ],
+                title: "Output",
               },
-              layoutGroups: [
-                {
-                  columns: 2,
-                  controls: ["background", "diagnosticOverlay"],
-                  layout: "inline",
-                },
-              ],
-              title: "Output",
-            },
-          ],
-          title: "Controls",
+            ],
+            title: "Controls",
+          },
         },
+        persistence: { storage: "none" },
       },
+      modules: [],
     });
 
     expect(

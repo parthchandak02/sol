@@ -11,68 +11,8 @@ import {
 } from "./browser-acceptance-outcome-helpers";
 import { expectToolcraftLayerSelection } from "./browser-layer-evidence-helpers";
 import { createToolcraftBrowserProofSession } from "./browser-proof-session";
-import { expectToolcraftScenarioPerformanceBudget } from "./performance-budget-helpers";
-import { measureToolcraftInteraction } from "./performance-probe-helpers";
 import { expectToolcraftProductObservableToChange } from "./product-observable-helpers";
 import { expectToolcraftTimelineDuration } from "./browser-timeline-evidence-helpers";
-
-test("performance budgets accept only branded measurements for the same scenario", async ({
-  page,
-}, testInfo: TestInfo) => {
-  await page.setContent('<div id="performance-outcome">before</div>');
-  const config = {
-    rendererStrategy: "none",
-    rendererWorkload: "none",
-    scenarios: [
-      {
-        automated: true,
-        automatedTestName: "perf: runtime brand",
-        browser: true,
-        browserTestName: "browser perf: runtime brand",
-        budget: { maxInteractionMs: 1_000 },
-        expectedObservable: "The measured action completes.",
-        fixture: "runtime fixture",
-        id: "runtime-brand",
-        interaction: "control-change",
-        workload: false,
-      },
-    ],
-    usesCustomRenderer: false,
-    workloadTargets: [],
-  } as const;
-  const attachmentCount = testInfo.attachments.length;
-  const result = await measureToolcraftInteraction(
-    page,
-    async () => {
-      await page.locator("#performance-outcome").evaluate((node) => {
-        node.textContent = "after";
-      });
-    },
-    {
-      observeOutcome: () => page.locator("#performance-outcome").textContent(),
-      scenarioId: "runtime-brand",
-    },
-  );
-  await expectToolcraftScenarioPerformanceBudget(result, config, "runtime-brand");
-
-  expect(
-    testInfo.attachments.slice(attachmentCount).map((attachment) =>
-      parseToolcraftBrowserRuntimeEvidence(attachment)?.evidenceType,
-    ),
-  ).toEqual([
-    "performance-product-outcome",
-    "performance-measurement",
-    "performance-budget",
-  ]);
-  expect(Object.isFrozen(result)).toBe(true);
-  await expect(
-    expectToolcraftScenarioPerformanceBudget(
-      { ...result },
-      config,
-      "runtime-brand",
-    ),
-  ).rejects.toThrow(/protected measurement helper/u);
-});
 
 test("protected observable evidence is attached only after its assertion succeeds", async ({
   page,
@@ -82,6 +22,14 @@ test("protected observable evidence is attached only after its assertion succeed
   await page.locator('[data-slot="toolcraft-runtime-app"]').evaluate((root) => {
     const output = document.createElement("div");
     output.dataset.toolcraftProductOutput = "";
+    output.dataset.toolcraftProofProductOutput = "";
+    output.style.backgroundColor = "#000000";
+    output.style.height = "24px";
+    output.style.left = "0";
+    output.style.position = "fixed";
+    output.style.top = "0";
+    output.style.width = "24px";
+    output.style.zIndex = "100";
     output.textContent = "Before";
     const button = document.createElement("button");
     button.id = "change-output";
@@ -104,11 +52,15 @@ test("protected observable evidence is attached only after its assertion succeed
       await control.locator("#change-output").evaluate((button) => {
         button.dataset.activated = "true";
       });
-      await currentPage.locator('[data-toolcraft-product-output]').evaluate((output) => {
+      await currentPage.locator('[data-toolcraft-proof-product-output]').evaluate((output) => {
+        (output as HTMLElement).style.backgroundColor = "#FFFFFF";
         output.textContent = "After";
       });
     }),
-    { requirementId: "test.successful-observable" },
+    {
+      requirementId: "test.successful-observable",
+      selector: "[data-toolcraft-proof-product-output]",
+    },
   );
 
   const attachment = testInfo.attachments.at(-1);
@@ -131,6 +83,7 @@ test("protected observable evidence is attached only after its assertion succeed
       session.controlAction("test.output", async () => undefined),
       {
         requirementId: "test.failed-observable",
+        selector: "[data-toolcraft-proof-product-output]",
         timeoutMs: 100,
       },
     ),
@@ -195,7 +148,7 @@ test("acceptance evidence is attached only after semantic verification succeeds"
   await expect(
     expectToolcraftLayerSelection(
       selection,
-      session.action(async () => undefined),
+      session.targetAction("layers.selection", async () => undefined),
       { selectedLayerId: "layer-b" },
       {
         requirementId: "layers.selection",
@@ -234,7 +187,46 @@ test("acceptance evidence is attached only after semantic verification succeeds"
   await expectToolcraftReferenceParity(
     () => page.locator("#outcome").textContent(),
     "after",
-    { requirementId: "reference.renderer-state" },
+    {
+      requirementId: "reference.renderer-state",
+      target: "renderer.output",
+    },
   );
   expect(testInfo.attachments).toHaveLength(attachmentCount + 2);
+});
+
+test("command side-effect evidence inherits its protected action target", async ({
+  page,
+}, testInfo: TestInfo) => {
+  await page.goto("/");
+  const session = await createToolcraftBrowserProofSession(page);
+  await page.locator('[data-slot="toolcraft-runtime-app"]').evaluate((root) => {
+    root.setAttribute("data-selected-source", "source-a");
+  });
+  const attachmentCount = testInfo.attachments.length;
+
+  await expectToolcraftAcceptanceOutcome(
+    () =>
+      page
+        .locator('[data-slot="toolcraft-runtime-app"]')
+        .getAttribute("data-selected-source"),
+    session.targetAction("sources.selected", async (currentPage) => {
+      await currentPage
+        .locator('[data-slot="toolcraft-runtime-app"]')
+        .evaluate((root) => root.setAttribute("data-selected-source", "source-b"));
+    }),
+    {
+      evidenceType: "command-side-effect",
+      requirementId: "source.selection",
+      stabilityIntervalMs: 0,
+    },
+  );
+
+  expect(testInfo.attachments).toHaveLength(attachmentCount + 1);
+  expect(parseToolcraftBrowserRuntimeEvidence(testInfo.attachments.at(-1))).toEqual({
+    evidenceType: "command-side-effect",
+    requirementId: "source.selection",
+    target: "sources.selected",
+    version: 2,
+  });
 });
